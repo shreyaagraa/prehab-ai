@@ -249,7 +249,7 @@ pnpm-debug.log*
 *.safetensors
 checkpoints/
 weights/
-models/
+/models/
 
 # Uploaded videos & user media
 uploads/
