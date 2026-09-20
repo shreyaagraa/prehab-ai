@@ -117,3 +117,20 @@ class UserLoginRequest(BaseModel):
         if isinstance(v, str):
             return v.strip().lower()
         return v
+
+
+class GoogleLoginRequest(BaseModel):
+    """
+    Schema for Google OAuth 2.0 / OpenID Connect login request.
+    """
+    credential: str = Field(
+        ...,
+        description="Google ID token returned by Google Identity Services",
+        examples=["eyJhbGciOiJSUzI1NiIsImtpZCI6..."],
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="Optional password required when explicitly linking Google to an existing password account",
+        examples=["StrongPassword123"],
+    )
+

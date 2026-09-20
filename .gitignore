@@ -259,3 +259,8 @@ uploads/
 *.avi
 *.webm
 *.mkv
+
+scratch/
+*.db
+backend/*.db
+*.env

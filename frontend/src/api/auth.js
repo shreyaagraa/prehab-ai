@@ -27,8 +27,18 @@ export async function registerUser(data) {
   return response.data;
 }
 
+export async function googleLoginUser(credential, password = null) {
+  const payload = { credential };
+  if (password) {
+    payload.password = password;
+  }
+  const response = await api.post("/auth/google", payload);
+  return response.data;
+}
+
 export async function getCurrentUser() {
   const response = await api.get("/auth/me");
 
   return response.data;
 }
+

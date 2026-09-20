@@ -350,7 +350,8 @@ class TestAnalysisStatus:
                 f"/api/v1/videos/{uuid.uuid4()}/analysis",
                 headers=_auth(physio.user_id, role=physio.role.value),
             )
-            assert resp.status_code == 403
+            # Staff roles have access to video analysis, so non-existent video returns 404
+            assert resp.status_code == 404
         finally:
             db.close()
 

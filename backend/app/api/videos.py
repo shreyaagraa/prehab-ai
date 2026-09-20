@@ -27,10 +27,10 @@ import os
 import re
 import uuid as uuid_module
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query, status
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
@@ -44,13 +44,24 @@ from app.models.analysis_result import (
 )
 from app.models.analysis_feature import AnalysisFeature
 from app.models.analysis_less import AnalysisLESS
+from app.models.pose_landmark import PoseLandmark
+from app.models.injury_prediction import InjuryPrediction
+from app.models.recommendation import Recommendation
 from app.models.user import RoleEnum, User
-from app.schemas.video import VideoUploadResponse
+from app.schemas.video import VideoUploadResponse, VideoHistoryItem, VideoUpdate
 from app.schemas.analysis import AnalysisTriggerResponse, AnalysisStatusResponse
 from app.schemas.feature import AnalysisFeatureResponse
 from app.schemas.less import AnalysisLESSResponse
+from app.schemas.recommendation import CorrectiveActionPlanResponse
+from app.schemas.landmark import (
+    AnalysisPoseLandmarksResponse,
+    SingleLandmarkSchema,
+    FramePoseLandmarksSchema,
+)
 from app.core.dependencies import get_current_user
 from app.services.analysis_pipeline import run_analysis_pipeline
+from app.services.recommendation_engine import CorrectiveRecommendationEngine
+
 
 
 router = APIRouter(
@@ -58,12 +69,7 @@ router = APIRouter(
     tags=["Videos"],
 )
 
-# ── Upload directory ─────────────────────────────────────────────────────────
-
-# Absolute path inside the container.
-# The Docker named volume `uploads_data` is mounted here, so files survive
-# container recreation and rebuilds.
-UPLOAD_DIR = Path("/app/uploads")
+from app.core.storage import UPLOAD_DIR
 
 # ── Validation constants ────────────────────────────────────────────────────
 
@@ -284,6 +290,191 @@ async def upload_video(
     return video
 
 
+# ── History endpoint ─────────────────────────────────────────────────────────
+# IMPORTANT: This must be declared before any /{video_id}/... routes so that
+# FastAPI does not try to parse the literal string "my-history" as a UUID.
+
+@router.get(
+    "/my-history",
+    response_model=list[VideoHistoryItem],
+    status_code=200,
+    summary="Get analysis history for the authenticated athlete",
+    description=(
+        "Returns all videos belonging to the logged-in athlete, sorted newest first. "
+        "Each item includes the latest AnalysisResult summary (risk score, status) and "
+        "LESS score where available.  Does NOT trigger any new analysis."
+    ),
+)
+def get_my_history(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> list[VideoHistoryItem]:
+    """
+    Return a history list for the authenticated athlete.
+
+    Authorization
+    -------------
+    - Requires ATHLETE role.
+    - Athletes can only see their own videos.
+    """
+    if current_user.role != RoleEnum.ATHLETE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Athlete users can view analysis history.",
+        )
+
+    athlete = _get_athlete_for_user(current_user, db)
+
+    videos = (
+        db.query(Video)
+        .filter(Video.athlete_id == athlete.athlete_id)
+        .order_by(Video.uploaded_at.desc())
+        .all()
+    )
+
+    items: list[VideoHistoryItem] = []
+    for video in videos:
+        # Fetch latest analysis for this video (if any)
+        analysis = (
+            db.query(AnalysisResult)
+            .filter(AnalysisResult.video_id == video.video_id)
+            .order_by(AnalysisResult.created_at.desc())
+            .first()
+        )
+
+        less_score = None
+        less_max = None
+        if analysis is not None:
+            less_record = (
+                db.query(AnalysisLESS)
+                .filter(AnalysisLESS.analysis_id == analysis.analysis_id)
+                .first()
+            )
+            if less_record is not None:
+                less_score = less_record.score
+                less_max = less_record.max_computable_score
+
+        items.append(
+            VideoHistoryItem(
+                video_id=video.video_id,
+                title=video.title,
+                original_filename=video.original_filename,
+                video_url=video.video_url,
+                uploaded_at=video.uploaded_at,
+                processing_status=video.processing_status,
+                analysis_id=analysis.analysis_id if analysis else None,
+                analysis_status=analysis.status if analysis else None,
+                overall_risk_score=analysis.overall_risk_score if analysis else None,
+                risk_level=analysis.risk_level if analysis else None,
+                completed_at=analysis.completed_at if analysis else None,
+                less_score=less_score,
+                less_max_computable_score=less_max,
+                has_pose_landmarks=bool(
+                    analysis is not None
+                    and analysis.status == "COMPLETED"
+                    and (analysis.frames_processed or 0) > 0
+                    and db.query(PoseLandmark.landmark_id)
+                    .filter(PoseLandmark.analysis_id == analysis.analysis_id)
+                    .first()
+                    is not None
+                ) if analysis else False,
+            )
+        )
+
+    return items
+
+
+# ── Staff Team Assessments endpoint ──────────────────────────────────────────
+
+@router.get(
+    "/assessments",
+    response_model=list[dict],
+    status_code=200,
+    summary="Get all team assessments for staff users",
+    description="Returns all video assessments across athletes for coaches/physios/staff.",
+)
+def get_all_assessments(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    STAFF_ROLES = (
+        RoleEnum.ADMINISTRATOR,
+        RoleEnum.COACH,
+        RoleEnum.PHYSIOTHERAPIST,
+        RoleEnum.SPORTS_SCIENTIST,
+    )
+    if current_user.role not in STAFF_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only staff users can view team assessments.",
+        )
+
+    videos = (
+        db.query(Video)
+        .order_by(Video.uploaded_at.desc())
+        .all()
+    )
+
+    items: list[dict] = []
+    for video in videos:
+        athlete = db.query(Athlete).filter(Athlete.athlete_id == video.athlete_id).first()
+        user = db.query(User).filter(User.user_id == athlete.user_id).first() if athlete else None
+
+        analysis = (
+            db.query(AnalysisResult)
+            .filter(AnalysisResult.video_id == video.video_id)
+            .order_by(AnalysisResult.created_at.desc())
+            .first()
+        )
+
+        less_score = None
+        less_max = None
+        if analysis:
+            less_record = (
+                db.query(AnalysisLESS)
+                .filter(AnalysisLESS.analysis_id == analysis.analysis_id)
+                .first()
+            )
+            if less_record:
+                less_score = less_record.score
+                less_max = less_record.max_computable_score
+
+        has_pose = bool(
+            analysis is not None
+            and analysis.status == "COMPLETED"
+            and (analysis.frames_processed or 0) > 0
+            and db.query(PoseLandmark.landmark_id)
+            .filter(PoseLandmark.analysis_id == analysis.analysis_id)
+            .first()
+            is not None
+        ) if analysis else False
+
+        items.append(
+            {
+                "video_id": str(video.video_id),
+                "athlete_id": str(video.athlete_id),
+                "athlete_name": user.name if user else "Athlete",
+                "sport": athlete.sport if athlete else None,
+                "position": athlete.position if athlete else None,
+                "original_filename": video.original_filename,
+                "video_url": video.video_url,
+                "uploaded_at": video.uploaded_at.isoformat() if video.uploaded_at else None,
+                "processing_status": video.processing_status,
+                "analysis_id": str(analysis.analysis_id) if analysis else None,
+                "analysis_status": analysis.status if analysis else None,
+                "overall_risk_score": analysis.overall_risk_score if analysis else None,
+                "risk_level": analysis.risk_level if analysis else None,
+                "completed_at": analysis.completed_at.isoformat() if analysis and analysis.completed_at else None,
+                "less_score": less_score,
+                "less_max_computable_score": less_max,
+                "has_pose_landmarks": has_pose,
+            }
+        )
+
+    return items
+
+
+
 # ── Analysis endpoints ────────────────────────────────────────────────────────
 
 def _get_video_for_athlete(
@@ -308,6 +499,53 @@ def _get_video_for_athlete(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to access this video.",
         )
+    return video
+
+
+def _get_video_for_user(
+    video_id: uuid_module.UUID,
+    user: User,
+    db: Session,
+) -> Video:
+    """
+    Fetch video by ID and verify the requesting user has authorization to access it.
+
+    - Athlete: Must own the video (video.athlete_id == athlete.athlete_id).
+    - Coach: Must be assigned to the athlete who owns the video (athlete.coach_id == user.user_id).
+    - Other Staff (Administrator, Physiotherapist, Sports Scientist): Authorized for all videos.
+
+    Raises HTTP 404 if video or athlete not found.
+    Raises HTTP 403 if access is not authorized.
+    """
+    video = db.query(Video).filter(Video.video_id == video_id).first()
+    if video is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Video {video_id} not found.",
+        )
+
+    if user.role == RoleEnum.ATHLETE:
+        athlete = _get_athlete_for_user(user, db)
+        if video.athlete_id != athlete.athlete_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this video.",
+            )
+    elif user.role == RoleEnum.COACH:
+        athlete = db.query(Athlete).filter(Athlete.athlete_id == video.athlete_id).first()
+        if athlete is None or athlete.coach_id != user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this athlete's assessment.",
+            )
+    elif user.role in (RoleEnum.ADMINISTRATOR, RoleEnum.PHYSIOTHERAPIST, RoleEnum.SPORTS_SCIENTIST):
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only authorized users can access analysis results.",
+        )
+
     return video
 
 
@@ -435,15 +673,7 @@ def get_analysis_status(
     Enforces video ownership: the requesting athlete must own the video.
     Returns HTTP 404 if no analysis record exists yet.
     """
-    # Role check (athletes only — coaches/physios can be added later)
-    if current_user.role != RoleEnum.ATHLETE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Athlete users can view analysis results.",
-        )
-
-    athlete = _get_athlete_for_user(current_user, db)
-    _get_video_for_athlete(video_id, athlete, db)  # ownership check
+    video = _get_video_for_user(video_id, current_user, db)
 
     analysis = (
         db.query(AnalysisResult)
@@ -458,7 +688,48 @@ def get_analysis_status(
             detail="No analysis found for this video. Trigger one via POST /analyze.",
         )
 
-    return analysis
+    # Convert model instance to response schema
+    response_data = AnalysisStatusResponse.model_validate(analysis)
+
+    # Attach video metadata so the frontend can build the player URL and report header
+    response_data.video_url = video.video_url
+    response_data.original_filename = video.original_filename
+
+    # Attach 5-factor risk score breakdown if completed
+    if analysis.status == "COMPLETED":
+        try:
+            from app.services.risk_scoring_service import RiskScoringService  # noqa: PLC0415
+            risk_svc = RiskScoringService()
+            breakdown = risk_svc.get_breakdown(analysis.analysis_id, db)
+            response_data.s_bio = breakdown.s_bio
+            response_data.s_hist = breakdown.s_hist
+            response_data.s_asym = breakdown.s_asym
+            response_data.s_load = breakdown.s_load
+            response_data.s_fatigue = breakdown.s_fatigue
+            response_data.s_load_available = breakdown.s_load_available
+            response_data.s_fatigue_available = breakdown.s_fatigue_available
+            response_data.disclaimer = breakdown.model_framing
+            response_data.risk_breakdown = breakdown
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            rec_plan = CorrectiveRecommendationEngine.generate_for_analysis(analysis.analysis_id, db)
+            response_data.recommendations = rec_plan
+        except Exception:  # noqa: BLE001
+            pass
+
+    response_data.has_pose_data = bool(
+        analysis.status == "COMPLETED"
+        and (analysis.frames_processed or 0) > 0
+        and db.query(PoseLandmark.landmark_id)
+        .filter(PoseLandmark.analysis_id == analysis.analysis_id)
+        .first()
+        is not None
+    )
+
+    return response_data
+
 
 
 @router.get(
@@ -479,14 +750,7 @@ def get_analysis_features(
     """
     Return the extracted biomechanical feature vector for the video.
     """
-    if current_user.role != RoleEnum.ATHLETE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Athlete users can view biomechanical features.",
-        )
-
-    athlete = _get_athlete_for_user(current_user, db)
-    _get_video_for_athlete(video_id, athlete, db)  # ownership check
+    _get_video_for_user(video_id, current_user, db)
 
     analysis = (
         db.query(AnalysisResult)
@@ -533,14 +797,7 @@ def get_analysis_less(
     """
     Return the LESS approximation assessment for the video.
     """
-    if current_user.role != RoleEnum.ATHLETE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Athlete users can view LESS results.",
-        )
-
-    athlete = _get_athlete_for_user(current_user, db)
-    _get_video_for_athlete(video_id, athlete, db)  # ownership check
+    _get_video_for_user(video_id, current_user, db)
 
     analysis = (
         db.query(AnalysisResult)
@@ -567,4 +824,313 @@ def get_analysis_less(
         )
 
     return less_record
+
+
+@router.get(
+    "/{video_id}/recommendations",
+    response_model=CorrectiveActionPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get personalized corrective action plan recommendations for a video assessment",
+    description=(
+        "Generates structured corrective recommendations (exercise, mobility, strengthening, "
+        "recovery, and volume modification) based on detected biomechanical movement patterns, "
+        "LESS scores, asymmetries, and workload indicators. Enforces ownership and RBAC."
+    ),
+)
+def get_analysis_recommendations(
+    video_id: uuid_module.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> CorrectiveActionPlanResponse:
+    """
+    Return the structured corrective action plan recommendations for the video.
+    """
+    _get_video_for_user(video_id, current_user, db)
+
+    analysis = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.video_id == video_id)
+        .order_by(AnalysisResult.created_at.desc())
+        .first()
+    )
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No analysis found for this video.",
+        )
+
+    rec_data = CorrectiveRecommendationEngine.generate_for_analysis(analysis.analysis_id, db)
+    return CorrectiveActionPlanResponse.model_validate(rec_data)
+
+
+# ── Pose landmarks overlay endpoint ──────────────────────────────────────────
+
+@router.get(
+    "/{video_id}/landmarks",
+    response_model=AnalysisPoseLandmarksResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get synchronized AI pose landmarks for a specific video assessment",
+    description=(
+        "Returns the time-indexed 33 MediaPipe pose landmarks for a video assessment. "
+        "Accepts an optional analysis_id query parameter to guarantee association with "
+        "the exact assessment being viewed. If analysis_id is omitted, defaults to the "
+        "latest analysis for the video. Enforces athlete ownership and staff RBAC."
+    ),
+)
+def get_analysis_landmarks(
+    video_id: uuid_module.UUID,
+    analysis_id: Annotated[Optional[uuid_module.UUID], Query(description="Exact assessment UUID")] = None,
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+    db: Session = Depends(get_db),
+) -> AnalysisPoseLandmarksResponse:
+    """
+    Return time-indexed pose landmarks for the exact analysis / video assessment.
+    """
+    video = _get_video_for_user(video_id, current_user, db)
+
+    # Scoped directly to the exact requested assessment if provided
+    if analysis_id is not None:
+        analysis = (
+            db.query(AnalysisResult)
+            .filter(
+                AnalysisResult.analysis_id == analysis_id,
+                AnalysisResult.video_id == video_id,
+            )
+            .first()
+        )
+        if analysis is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis {analysis_id} not found for video {video_id}.",
+            )
+    else:
+        analysis = (
+            db.query(AnalysisResult)
+            .filter(AnalysisResult.video_id == video_id)
+            .order_by(AnalysisResult.created_at.desc())
+            .first()
+        )
+        if analysis is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No analysis found for this video.",
+            )
+
+    raw_landmarks = (
+        db.query(PoseLandmark)
+        .filter(PoseLandmark.analysis_id == analysis.analysis_id)
+        .order_by(PoseLandmark.frame_number.asc(), PoseLandmark.landmark_index.asc())
+        .all()
+    )
+
+    frames_dict: dict[int, FramePoseLandmarksSchema] = {}
+    for lm in raw_landmarks:
+        if lm.frame_number not in frames_dict:
+            frames_dict[lm.frame_number] = FramePoseLandmarksSchema(
+                frame_number=lm.frame_number,
+                timestamp_ms=lm.timestamp_ms,
+                landmarks=[],
+            )
+        frames_dict[lm.frame_number].landmarks.append(
+            SingleLandmarkSchema(
+                landmark_index=lm.landmark_index,
+                landmark_name=lm.landmark_name,
+                x=lm.x,
+                y=lm.y,
+                z=lm.z,
+                visibility=lm.visibility,
+            )
+        )
+
+    frames_list = list(frames_dict.values())
+    has_pose = len(frames_list) > 0
+
+    return AnalysisPoseLandmarksResponse(
+        analysis_id=analysis.analysis_id,
+        video_id=video.video_id,
+        fps=analysis.fps,
+        width=analysis.width,
+        height=analysis.height,
+        total_frames=len(frames_list),
+        frames_with_pose=len(frames_list),
+        has_pose_data=has_pose,
+        frames=frames_list,
+    )
+
+
+
+# ── Delete video assessment endpoint ─────────────────────────────────────────
+
+@router.delete(
+    "/{video_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete an uploaded video assessment",
+    description=(
+        "Permanently deletes an uploaded video assessment and all associated analysis results, "
+        "features, LESS scores, and pose landmarks. Only accessible by the athlete who uploaded "
+        "the video or authorized staff."
+    ),
+)
+def delete_video_assessment(
+    video_id: uuid_module.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    """
+    Delete a video assessment record and all linked analysis entities.
+    """
+    STAFF_ROLES = (
+        RoleEnum.ADMINISTRATOR,
+        RoleEnum.COACH,
+        RoleEnum.PHYSIOTHERAPIST,
+    )
+
+    video = db.query(Video).filter(Video.video_id == video_id).first()
+    if video is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Video assessment {video_id} not found.",
+        )
+
+    if current_user.role == RoleEnum.ATHLETE:
+        athlete = _get_athlete_for_user(current_user, db)
+        if video.athlete_id != athlete.athlete_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete this assessment.",
+            )
+    elif current_user.role not in STAFF_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete assessments.",
+        )
+
+    # Clean up dependent analysis records
+    analyses = db.query(AnalysisResult).filter(AnalysisResult.video_id == video_id).all()
+    analysis_ids = [a.analysis_id for a in analyses]
+
+    if analysis_ids:
+        preds = db.query(InjuryPrediction).filter(InjuryPrediction.analysis_id.in_(analysis_ids)).all()
+        pred_ids = [p.prediction_id for p in preds]
+
+        if pred_ids:
+            db.query(Recommendation).filter(Recommendation.prediction_id.in_(pred_ids)).delete(synchronize_session=False)
+            db.query(InjuryPrediction).filter(InjuryPrediction.prediction_id.in_(pred_ids)).delete(synchronize_session=False)
+
+        db.query(PoseLandmark).filter(PoseLandmark.analysis_id.in_(analysis_ids)).delete(synchronize_session=False)
+        db.query(AnalysisFeature).filter(AnalysisFeature.analysis_id.in_(analysis_ids)).delete(synchronize_session=False)
+        db.query(AnalysisLESS).filter(AnalysisLESS.analysis_id.in_(analysis_ids)).delete(synchronize_session=False)
+
+        db.query(AnalysisResult).filter(AnalysisResult.video_id == video_id).delete(synchronize_session=False)
+
+    # Delete local file from storage if present
+    if video.video_url and video.video_url.startswith("/uploads/"):
+        file_name = video.video_url.replace("/uploads/", "")
+        file_path = UPLOAD_DIR / file_name
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception:
+            pass
+
+    db.delete(video)
+    db.commit()
+
+    return {"detail": "Assessment deleted successfully.", "video_id": str(video_id)}
+
+
+# ── Rename video assessment endpoint ─────────────────────────────────────────
+
+@router.patch(
+    "/{video_id}",
+    response_model=VideoHistoryItem,
+    status_code=status.HTTP_200_OK,
+    summary="Rename / update video assessment title",
+    description=(
+        "Updates custom title for a video assessment without altering the uploaded file. "
+        "Only accessible by owner or staff."
+    ),
+)
+def update_video_assessment(
+    video_id: uuid_module.UUID,
+    payload: VideoUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    """
+    Update custom assessment title for a video.
+    """
+    STAFF_ROLES = (
+        RoleEnum.ADMINISTRATOR,
+        RoleEnum.COACH,
+        RoleEnum.PHYSIOTHERAPIST,
+    )
+
+    video = db.query(Video).filter(Video.video_id == video_id).first()
+    if video is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Video assessment {video_id} not found.",
+        )
+
+    if current_user.role == RoleEnum.ATHLETE:
+        athlete = _get_athlete_for_user(current_user, db)
+        if video.athlete_id != athlete.athlete_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update this assessment.",
+            )
+    elif current_user.role not in STAFF_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to update assessments.",
+        )
+
+    if payload.title is not None:
+        new_title = payload.title.strip()
+        if not new_title:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assessment name cannot be empty.",
+            )
+        video.title = new_title
+
+    db.commit()
+    db.refresh(video)
+
+    analysis = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.video_id == video.video_id)
+        .order_by(AnalysisResult.created_at.desc())
+        .first()
+    )
+    less_score = None
+    less_max = None
+    if analysis is not None:
+        less_record = (
+            db.query(AnalysisLESS)
+            .filter(AnalysisLESS.analysis_id == analysis.analysis_id)
+            .first()
+        )
+        if less_record is not None:
+            less_score = less_record.score
+            less_max = less_record.max_computable_score
+
+    return VideoHistoryItem(
+        video_id=video.video_id,
+        title=video.title,
+        original_filename=video.original_filename,
+        video_url=video.video_url,
+        uploaded_at=video.uploaded_at,
+        processing_status=video.processing_status,
+        analysis_id=analysis.analysis_id if analysis else None,
+        analysis_status=analysis.status if analysis else None,
+        overall_risk_score=analysis.overall_risk_score if analysis else None,
+        risk_level=analysis.risk_level if analysis else None,
+        completed_at=analysis.completed_at if analysis else None,
+        less_score=less_score,
+        less_max_computable_score=less_max,
+    )
+
+
 

@@ -79,3 +79,50 @@ class Athlete(Base):
         Text,
         nullable=True
     )
+
+    coach_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id"),
+        nullable=True
+    )
+
+    injury_status: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        default="Healthy"
+    )
+
+    dominant_leg: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True
+    )
+
+    training_sessions_per_week: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    average_session_duration: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    average_session_rpe: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+
+    weekly_training_load: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+
+    current_fatigue_level: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    has_injury_history: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True
+    )

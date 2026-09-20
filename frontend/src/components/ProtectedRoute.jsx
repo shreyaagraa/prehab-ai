@@ -1,7 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import Sidebar from "./Sidebar";
 
 function ProtectedRoute({ children, allowedRoles }) {
     const { user, isAuthenticated, loading } = useAuth();
@@ -26,7 +25,6 @@ function ProtectedRoute({ children, allowedRoles }) {
     ) {
         return (
             <div className="app-layout">
-                <Sidebar />
                 <main className="dashboard">
                     <div className="empty-state" style={{ minHeight: "60vh" }}>
                         <ShieldAlert

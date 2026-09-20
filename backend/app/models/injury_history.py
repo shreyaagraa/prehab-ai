@@ -52,3 +52,9 @@ class InjuryHistory(Base):
         Text,
         nullable=True
     )
+
+    status: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        default="Recovered"
+    )

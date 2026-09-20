@@ -38,3 +38,19 @@ export async function upsertMyAthleteProfile(data) {
 
     return response.data;
 }
+
+/**
+ * Register a new athlete account & profile (Coach action).
+ */
+export async function registerAthleteWithUser(data) {
+    const response = await api.post("/athletes/register-athlete", data);
+    return response.data;
+}
+
+/**
+ * Assign or unassign an athlete to a coach or update status.
+ */
+export async function assignAthlete(id, assignData) {
+    const response = await api.patch(`/athletes/${id}/assign`, assignData);
+    return response.data;
+}

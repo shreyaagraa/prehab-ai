@@ -255,7 +255,7 @@ class TestGetAnalysisFeaturesEndpoint:
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert data["feature_version"] == "v1"
+        assert data["feature_version"] == FEATURE_VERSION
         assert data["analysis_id"] == str(analysis.analysis_id)
         assert data["features"]["knee_angle_left_mean"] == 135.0
         assert data["features"]["knee_angle_left_rom"] == 90.0

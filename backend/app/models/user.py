@@ -48,9 +48,16 @@ class User(Base):
         index=True,
     )
 
-    password: Mapped[str] = mapped_column(
+    password: Mapped[str | None] = mapped_column(
         Text,
-        nullable=False,
+        nullable=True,
+    )
+
+    google_sub: Mapped[str | None] = mapped_column(
+        String,
+        unique=True,
+        nullable=True,
+        index=True,
     )
 
     role: Mapped[RoleEnum] = mapped_column(
@@ -74,9 +81,9 @@ class User(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-    DateTime(timezone=True),
-    server_default=func.now(),
-    nullable=False,
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
 
     is_active: Mapped[bool] = mapped_column(

@@ -16,6 +16,9 @@ from app.database import get_db
 from app.api.auth import router as auth_router
 from app.api.athletes import router as athletes_router
 from app.api.videos import router as videos_router
+from app.api.injury_history import router as injury_history_router
+from app.api.notifications import router as notifications_router
+from app.api.reports import router as reports_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -46,14 +49,24 @@ app.include_router(athletes_router)
 app.include_router(videos_router, prefix=settings.API_V1_STR)
 app.include_router(videos_router)
 
+# Include Injury History Routes under both /api/v1 and root
+app.include_router(injury_history_router, prefix=settings.API_V1_STR)
+app.include_router(injury_history_router)
+
+# Include Notification Routes under both /api/v1 and root
+app.include_router(notifications_router, prefix=settings.API_V1_STR)
+app.include_router(notifications_router)
+
+# Include Report Routes under both /api/v1 and root
+app.include_router(reports_router, prefix=settings.API_V1_STR)
+app.include_router(reports_router)
+
+
 # ── Static file serving for uploaded videos ──────────────────────────────────
-# The Docker named volume `uploads_data` is mounted at /app/uploads.
-# This mount makes every stored video accessible at:
-#   http://<host>:8000/uploads/<uuid>_<filename>
-# The directory is created here so the app starts cleanly on a fresh volume.
-_UPLOAD_DIR = Path("/app/uploads")
-_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_UPLOAD_DIR)), name="uploads")
+from app.core.storage import UPLOAD_DIR
+
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/", tags=["Root"])
 def read_root():

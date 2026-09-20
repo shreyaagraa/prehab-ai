@@ -33,6 +33,7 @@ from app.database import SessionLocal
 from app.main import app
 from app.models.user import RoleEnum, User
 from app.models.athlete import Athlete
+from app.models.video import Video
 
 
 client = TestClient(app)
@@ -513,3 +514,77 @@ class TestResourceLevelRBAC:
         data = response.json()
         assert len(data) == 1
         assert data[0]["athlete_id"] == str(athlete_a.athlete_id)
+
+    def test_coach_can_access_assigned_athlete_video_analysis(self):
+        """Coach can access video analysis of an athlete assigned to their roster."""
+        coach_user = _create_test_user("Coach Assigned", "coach.assigned@test.invalid", RoleEnum.COACH)
+        athlete_user = _create_test_user("Athlete Roster", "athlete.roster@test.invalid", RoleEnum.ATHLETE)
+
+        db = SessionLocal()
+        try:
+            athlete = Athlete(
+                athlete_id=uuid.uuid4(),
+                user_id=athlete_user.user_id,
+                coach_id=coach_user.user_id,
+                sport="Soccer",
+            )
+            db.add(athlete)
+            db.commit()
+
+            video = Video(
+                video_id=uuid.uuid4(),
+                athlete_id=athlete.athlete_id,
+                original_filename="test.mp4",
+                video_url="/uploads/test.mp4",
+                processing_status="COMPLETED",
+            )
+            db.add(video)
+            db.commit()
+
+            coach_token = _make_token(str(coach_user.user_id), role=RoleEnum.COACH.value)
+            response = client.get(
+                f"/api/v1/videos/{video.video_id}/analysis",
+                headers=_auth_header(coach_token),
+            )
+            # Authorization passes (returns 404 since no AnalysisResult row exists, NOT 403)
+            assert response.status_code == 404
+            assert "No analysis found" in response.json()["detail"]
+        finally:
+            db.close()
+
+    def test_coach_cannot_access_unassigned_athlete_video_analysis(self):
+        """Coach cannot access video analysis of an athlete not in their roster -> 403."""
+        coach_user = _create_test_user("Coach Unassigned", "coach.unassigned@test.invalid", RoleEnum.COACH)
+        other_coach = _create_test_user("Coach Other", "coach.other@test.invalid", RoleEnum.COACH)
+        athlete_user = _create_test_user("Athlete Other Roster", "athlete.otherroster@test.invalid", RoleEnum.ATHLETE)
+
+        db = SessionLocal()
+        try:
+            athlete = Athlete(
+                athlete_id=uuid.uuid4(),
+                user_id=athlete_user.user_id,
+                coach_id=other_coach.user_id,
+                sport="Soccer",
+            )
+            db.add(athlete)
+            db.commit()
+
+            video = Video(
+                video_id=uuid.uuid4(),
+                athlete_id=athlete.athlete_id,
+                original_filename="test2.mp4",
+                video_url="/uploads/test2.mp4",
+                processing_status="COMPLETED",
+            )
+            db.add(video)
+            db.commit()
+
+            coach_token = _make_token(str(coach_user.user_id), role=RoleEnum.COACH.value)
+            response = client.get(
+                f"/api/v1/videos/{video.video_id}/analysis",
+                headers=_auth_header(coach_token),
+            )
+            assert response.status_code == 403
+            assert "permission" in response.json()["detail"].lower()
+        finally:
+            db.close()

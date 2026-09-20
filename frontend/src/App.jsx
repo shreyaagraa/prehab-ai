@@ -8,6 +8,10 @@ import Profile from "./pages/Profile";
 import Athletes from "./pages/Athletes";
 import Assessments from "./pages/Assessments";
 import VideoAnalysis from "./pages/VideoAnalysis";
+import AnalysisHistory from "./pages/AnalysisHistory";
+import AnalysisReport from "./pages/AnalysisReport";
+import Notifications from "./pages/Notifications";
+import Reports from "./pages/Reports";
 import NotFound from "./pages/NotFound";
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -43,6 +47,15 @@ function App() {
         />
 
         <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute>
+              <Notifications />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/profile"
           element={
             <ProtectedRoute>
@@ -63,17 +76,47 @@ function App() {
         <Route
           path="/assessments"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={STAFF_ROLES}>
               <Assessments />
             </ProtectedRoute>
           }
         />
 
         <Route
+          path="/reports"
+          element={
+            <ProtectedRoute>
+              <Reports />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Upload + live analysis */}
+        <Route
           path="/analysis"
           element={
             <ProtectedRoute allowedRoles={["Athlete"]}>
               <VideoAnalysis />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Analysis history list — must come before /analysis/:videoId */}
+        <Route
+          path="/analysis/history"
+          element={
+            <ProtectedRoute allowedRoles={["Athlete"]}>
+              <AnalysisHistory />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Historical analysis report (read-only) */}
+        <Route
+          path="/analysis/:videoId"
+          element={
+            <ProtectedRoute allowedRoles={["Athlete", ...STAFF_ROLES]}>
+              <AnalysisReport />
             </ProtectedRoute>
           }
         />

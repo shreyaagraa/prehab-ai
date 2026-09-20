@@ -42,10 +42,8 @@ from app.services.pose_estimator import MediaPipePoseEstimator, BasePoseEstimato
 
 logger = logging.getLogger(__name__)
 
+from app.core.storage import UPLOAD_DIR, resolve_video_path
 from app.services import less_scorer
-
-# Upload directory — matches the path used in api/videos.py
-UPLOAD_DIR = Path("/app/uploads")
 
 
 def run_analysis_pipeline(
@@ -90,10 +88,7 @@ def run_analysis_pipeline(
         logger.info("Analysis %s: status → PROCESSING", analysis_id)
 
         # ── 3. Resolve video file path ────────────────────────────────────────
-        # video_url is stored as "/uploads/<filename>" — strip the leading slash
-        # and join to the uploads directory (which is platform-independent).
-        relative = video_url.lstrip("/")               # "uploads/abc_video.mp4"
-        video_path = Path("/") / relative              # "/uploads/abc_video.mp4"
+        video_path = resolve_video_path(video_url)
 
         # ── 4. Extract frames with OpenCV ─────────────────────────────────────
         video_svc = VideoProcessingService(
@@ -215,6 +210,20 @@ def run_analysis_pipeline(
                     exc,
                 )
 
+        # ── 8.5. Calculate & Persist Overall Risk Score ─────────────────────────
+        try:
+            from app.services.risk_scoring_service import RiskScoringService  # noqa: PLC0415
+            risk_service = RiskScoringService()
+            risk_service.compute_and_persist(analysis_id=analysis_id, db=db)
+            logger.info("Analysis %s: RiskScoringService completed & persisted", analysis_id)
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            logger.exception(
+                "Analysis %s: RiskScoringService failed (non-fatal) — %s",
+                analysis_id,
+                exc,
+            )
+
         # ── 9. Mark COMPLETED ──────────────────────────────────────────────────
         analysis.frames_processed = frames_with_pose
         analysis.status           = ANALYSIS_STATUS_COMPLETED
@@ -227,6 +236,14 @@ def run_analysis_pipeline(
             frames_with_pose,
             len(landmark_rows),
         )
+
+        # ── 10. Generate Notifications (Non-blocking) ──────────────────────────
+        try:
+            from app.services.notification_service import NotificationService  # noqa: PLC0415
+            NotificationService.notify_assessment_completed(db=db, analysis_id=analysis_id)
+            logger.info("Analysis %s: Notifications dispatched successfully", analysis_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Analysis %s: Failed to dispatch completion notifications (non-fatal) — %s", analysis_id, exc)
 
         return less_result
 
@@ -259,3 +276,11 @@ def _mark_failed(db: Session, analysis: AnalysisResult, message: str) -> None:
             "Analysis %s: CRITICAL — could not persist FAILED status",
             analysis.analysis_id,
         )
+        return
+
+    # Trigger failure notification safely
+    try:
+        from app.services.notification_service import NotificationService  # noqa: PLC0415
+        NotificationService.notify_assessment_failed(db=db, analysis_id=analysis.analysis_id, error_message=message)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Analysis %s: Failed to dispatch failure notification (non-fatal) — %s", analysis.analysis_id, exc)

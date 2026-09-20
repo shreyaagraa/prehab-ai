@@ -9,7 +9,7 @@ import api from "./axios";
  *
  * @param {File} file  - The video File object from an <input type="file" />.
  * @param {Function} [onUploadProgress] - Optional axios progress callback.
- * @returns {Promise<Object>} Metadata response from the server.
+ * @returns {Promise<Object>} Metadata response from the server (includes video_url).
  */
 export async function uploadVideoFile(file, onUploadProgress) {
     const formData = new FormData();
@@ -19,7 +19,21 @@ export async function uploadVideoFile(file, onUploadProgress) {
         headers: {
             "Content-Type": "multipart/form-data",
         },
-        onUploadProgress,
+        onUploadProgress: (progressEvent) => {
+            if (typeof onUploadProgress === "function") {
+                let percent = 0;
+                if (typeof progressEvent === "number") {
+                    percent = progressEvent;
+                } else if (progressEvent && typeof progressEvent === "object") {
+                    if (progressEvent.total) {
+                        percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    } else if (progressEvent.progress != null) {
+                        percent = Math.round(progressEvent.progress * 100);
+                    }
+                }
+                onUploadProgress(Math.min(100, Math.max(0, percent || 0)));
+            }
+        },
     });
 
     return response.data;
@@ -80,3 +94,97 @@ export async function getLessResult(videoId) {
     return response.data;
 }
 
+/**
+ * Fetch the Corrective Action Plan / recommendations for an analyzed video.
+ *
+ * GET /videos/{videoId}/recommendations
+ *
+ * @param {string} videoId - UUID of the video.
+ * @returns {Promise<Object>} CorrectiveActionPlanResponse from the server.
+ */
+export async function getRecommendations(videoId) {
+    const response = await api.get(`/videos/${videoId}/recommendations`);
+    return response.data;
+}
+
+/**
+ * Fetch the detected AI pose landmarks for a specific video assessment.
+ * Scoped to an exact analysisId to guarantee matching the active assessment.
+ *
+ * GET /videos/{videoId}/landmarks?analysis_id={analysisId}
+ *
+ * @param {string} videoId - UUID of the video.
+ * @param {string} [analysisId] - Optional exact assessment UUID.
+ * @returns {Promise<Object>} AnalysisPoseLandmarksResponse from the server.
+ */
+export async function getAnalysisLandmarks(videoId, analysisId = null) {
+    const params = analysisId ? { analysis_id: analysisId } : {};
+    const response = await api.get(`/videos/${videoId}/landmarks`, { params });
+    return response.data;
+}
+
+
+/**
+ * Fetch the analysis history for the authenticated athlete.
+ *
+ * GET /videos/my-history
+ *
+ * Returns all videos belonging to the athlete sorted newest first.
+ * Each item includes the latest risk score/LESS score summary.
+ * Does NOT trigger any new analysis.
+ *
+ * @returns {Promise<Array>} List of VideoHistoryItem objects.
+ */
+export async function getMyHistory() {
+    const response = await api.get("/videos/my-history");
+    return response.data;
+}
+
+/**
+ * Fetch all team assessments (Staff action).
+ * GET /videos/assessments
+ */
+export async function getAllAssessments() {
+    const response = await api.get("/videos/assessments");
+    return response.data;
+}
+
+/**
+ * Delete a video assessment record.
+ * DELETE /videos/{videoId}
+ *
+ * @param {string} videoId - UUID of the video assessment to delete.
+ * @returns {Promise<Object>} Response object from the server.
+ */
+export async function deleteVideoAssessment(videoId) {
+    const response = await api.delete(`/videos/${videoId}`);
+    return response.data;
+}
+
+/**
+ * Update video assessment title (rename).
+ * PATCH /videos/{videoId}
+ *
+ * @param {string} videoId - UUID of the video assessment to update.
+ * @param {Object} data - { title: string }
+ * @returns {Promise<Object>} Response object from the server.
+ */
+export async function updateVideoAssessment(videoId, data) {
+    const response = await api.patch(`/videos/${videoId}`, data);
+    return response.data;
+}
+
+/**
+ * Derive the media base URL from the configured API base URL.
+ *
+ * The API base is e.g. "http://127.0.0.1:8000/api/v1".
+ * Video files are served from "http://127.0.0.1:8000/uploads/...".
+ * This helper strips the "/api/v1" suffix to get the origin.
+ *
+ * @returns {string} Origin base, e.g. "http://127.0.0.1:8000"
+ */
+export function getMediaBaseUrl() {
+    const apiBase =
+        import.meta?.env?.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
+    return apiBase.replace(/\/api\/v\d+\/?$/, "").replace(/\/$/, "");
+}

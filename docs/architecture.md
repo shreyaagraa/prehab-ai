@@ -6,7 +6,7 @@ This document details the architectural design, component flow, security model, 
 
 ## 🏗️ High-Level System Architecture
 
-The application follows a decoupled client-server architecture with a Single Page Application (SPA) frontend, a RESTful FastAPI backend, and a PostgreSQL relational database.
+The application follows a decoupled client-server architecture with a Single Page Application (SPA) frontend, a RESTful FastAPI backend, an AI processing pipeline, and a PostgreSQL relational database running in Docker containers.
 
 ```mermaid
 graph TD
@@ -18,26 +18,23 @@ graph TD
 
     subgraph API Layer [Backend - FastAPI]
         D[FastAPI Router] -->|Dependency Injection| E[get_current_user Auth Guard]
-        E -->|Role Validation| F[require_role / require_roles Dependency]
+        E -->|Role Validation| F[RBAC Enforcement: Athlete/Coach/Physio/Admin]
         D -->|JSON / Multipart Payload| G[Pydantic v2 Schemas]
     end
 
-    subgraph Service & ORM Layer
-        G --> H[SQLAlchemy 2.0 ORM]
-        H --> I[Session Management / Connection Pool]
-        D --> SVC[Services Layer]
-        SVC --> VP[VideoProcessingService - OpenCV]
-        SVC --> PE[PoseEstimationService - MediaPipe]
-        SVC --> AP[AnalysisPipeline - BackgroundTask]
+    subgraph Analytics & AI Pipeline Layer
+        D -->|POST /analyze| BG[BackgroundTask Orchestrator]
+        BG --> VP[OpenCV VideoProcessor - Frame Sampling]
+        VP --> PE[MediaPipe PoseEstimator - 33 3D Landmarks]
+        PE --> FE[Biomechanical FeatureExtractor - Kinematics]
+        FE --> LESS[LESS Scorer - 9 Clinical Criteria]
+        LESS --> RS[RiskScoringService - 5-Factor Risk Engine]
     end
 
-    subgraph Data Layer [Database - PostgreSQL]
-        I --> J[(PostgreSQL Database)]
-        J --> K[users table & user_role_enum]
-        J --> L[athletes table]
-        J --> M[videos table - filesystem path]
-        J --> N[analysis_results table - PENDING/PROCESSING/COMPLETED/FAILED]
-        J --> O[pose_landmarks table - 33 landmarks per frame]
+    subgraph Data & Storage Layer [Docker Infrastructure]
+        RS --> ORM[SQLAlchemy 2.0 ORM]
+        ORM --> DB[(PostgreSQL 16 Database)]
+        VP --> FS[/app/uploads Docker Storage Volume]
     end
 
     B -->|REST Calls| D
@@ -103,48 +100,62 @@ Every API endpoint validates permissions server-side:
   * `DELETE /athletes/{id}`: Restricted to `RoleEnum.ADMINISTRATOR`.
 
 ### B. Frontend Route & UI Adaptation (React — UX & Navigation)
-* **Route Protection (`ProtectedRoute.jsx`)**: Checks `isAuthenticated` and optional `allowedRoles`. If an authenticated user attempts direct URL navigation to an unauthorized route (e.g. Athlete visiting `/athletes`), a clean `Access Restricted` UI is displayed with a navigation button back to `/dashboard`.
-* **Role-Aware Sidebar (`Sidebar.jsx`)**: Filters sidebar links dynamically based on `user.role` (e.g. Roster page shown for Staff roles, Video Analysis shown for Athletes). Displays a role badge at the bottom.
+* **Route Protection (`ProtectedRoute.jsx`)**: Checks `isAuthenticated` and optional `allowedRoles`. If an authenticated user attempts direct URL navigation to an unauthorized route, a clean `Access Restricted` UI is displayed.
+* **Role-Aware Sidebar (`Sidebar.jsx`)**: Filters sidebar links dynamically based on `user.role` (e.g., Roster and Assessments shown for Staff roles, Video Upload shown for Athletes).
 * **Customized Dashboard (`Dashboard.jsx`)**: Adapts greeting, statistics, and quick-action buttons based on whether the user is an Athlete or Staff.
 
 ---
 
-## 📹 3. Video Upload & Storage Flow
+## 📹 3. Video Upload & AI Processing Pipeline
 
-The platform handles video binary uploads directly through FastAPI and stores raw binary data in PostgreSQL using the `BYTEA` data type alongside metadata.
+The platform handles video uploads via FastAPI, saving video files to the persistent container storage volume `/app/uploads` and indexing metadata in PostgreSQL.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Athlete
-    participant UI as Video Analysis Page
-    participant API as POST /api/v1/videos
-    participant Auth as Auth & Profile Guard
-    participant DB as PostgreSQL (videos table)
+    participant FE as Frontend (React)
+    participant BE as FastAPI Backend
+    participant BG as BackgroundTask Worker
+    participant CV as OpenCV Processor
+    participant MP as MediaPipe BlazePose
+    participant FEA as Feature Extractor
+    participant LESS as LESS Scorer
+    participant RS as Risk Engine
+    participant DB as PostgreSQL DB
 
-    Athlete->>UI: Select Video File (.mp4, .mov, etc.)
-    UI->>UI: Validate Client-Side File Selection
-    UI->>API: POST /api/v1/videos (multipart/form-data)
-    Note over UI, API: Includes Authorization: Bearer <token>
+    Athlete->>FE: Select Video File & Click Upload
+    FE->>BE: POST /api/v1/videos (multipart/form-data)
+    BE->>BE: Validate MIME type & file size (≤ 500MB)
+    BE->>DB: Save Video metadata & storage URL (/uploads/file.mp4)
+    BE-->>FE: Return Video metadata (201 Created)
 
-    API->>Auth: Verify JWT & Resolve Athlete Record
-    Auth->>DB: Query Athlete by user_id
-    DB-->>Auth: Athlete Record Found
-    
-    API->>API: Validate MIME Type (ALLOWED_CONTENT_TYPES)
-    API->>API: Validate File Size (≤ 500 MB)
-    API->>API: Read Binary Bytes into Memory
+    Athlete->>FE: Click "Analyze Pose"
+    FE->>BE: POST /api/v1/videos/{id}/analyze
+    BE->>DB: INSERT analysis_results (status=PENDING)
+    BE-->>FE: 202 Accepted {analysis_id, status: PENDING}
+    BE->>BG: Enqueue run_analysis_pipeline()
 
-    API->>DB: INSERT INTO videos (athlete_id, original_filename, content_type, file_size, file_data, processing_status)
-    DB-->>API: Transaction Committed & Video ID Generated
-    API-->>UI: Return VideoUploadResponse (Metadata Only - No Binary Echo)
-    UI->>Athlete: Display Progress (100%) & Confirmation Card
+    loop Live Polling (every 2s)
+        FE->>BE: GET /api/v1/videos/{id}/analysis
+        BE-->>FE: Return current status (PENDING / PROCESSING)
+    end
+
+    BG->>DB: UPDATE status → PROCESSING
+    BG->>CV: Sample video frames (FRAME_SAMPLE_RATE=5)
+    BG->>MP: Extract 33 3D landmarks per frame
+    BG->>DB: Bulk INSERT pose_landmarks rows
+    BG->>FEA: Extract 15+ joint angles & asymmetry metrics
+    BG->>DB: INSERT analysis_features (JSON)
+    BG->>LESS: Evaluate 9 clinical landing criteria
+    BG->>DB: INSERT analysis_less (score, classification)
+    BG->>RS: Compute 5-factor risk score & overall rating
+    BG->>DB: UPDATE analysis_results (overall_risk_score, status=COMPLETED)
+
+    FE->>BE: GET /api/v1/videos/{id}/analysis
+    BE-->>FE: Return COMPLETED with 5-factor risk breakdown
+    FE->>Athlete: Render interactive Movement Evaluation Report
 ```
-
-### Data Pipeline Details:
-* **Server-Side Identity Derivation**: `user_id` and `athlete_id` are derived strictly from the authenticated JWT token — clients cannot pass or override target profile IDs.
-* **Payload Validation**: MIME types are checked against an explicit whitelist (`video/mp4`, `video/quicktime`, `video/x-msvideo`, `video/webm`, `video/x-matroska`), and payloads above 500 MB return `HTTP 413 Payload Too Large`.
-* **Zero-Echo Response**: The HTTP response contains file metadata (`video_id`, `original_filename`, `content_type`, `file_size`, `uploaded_at`), omitting binary contents to preserve bandwidth.
 
 ---
 
@@ -154,71 +165,13 @@ sequenceDiagram
 |---|---|
 | **Frontend UI** | React 18, Vite, Lucide React Icons, Vanilla CSS Design System |
 | **State & HTTP** | React Context API (`AuthContext`), Axios + Interceptors, React Router v6 |
-| **Backend Framework** | Python 3.11+, FastAPI, Pydantic v2, Pydantic Settings |
+| **Backend Framework** | Python 3.11+ / 3.14, FastAPI, Pydantic v2, Pydantic Settings |
 | **Database & ORM** | PostgreSQL 16, SQLAlchemy 2.0 (ORM & Mapped Types), Alembic Migrations |
 | **Security & Auth** | Argon2id (`argon2-cffi`), PyJWT (`python-jose`), FastAPI OAuth2 Bearer |
-| **File Processing** | `python-multipart` for streaming multipart binary parsing |
-| **Video Processing** | OpenCV (`opencv-python-headless`) — frame validation, FPS/metadata, frame sampling |
-| **Pose Estimation** | MediaPipe BlazePose — 33 landmarks (x, y, z, visibility) per frame |
-| **Async Processing** | FastAPI `BackgroundTasks` — no external queue/broker required |
-| **Containerisation** | Docker Compose (postgres, backend, frontend) with named volumes |
+| **Video Processing** | OpenCV (`opencv-python-headless`) — frame validation, FPS/resolution, frame sampling |
+| **Pose Estimation** | MediaPipe BlazePose — 33 spatial landmarks (x, y, z, visibility) per frame |
+| **Feature Extraction** | Kinematic Joint Angle Engine (15+ angles, angular velocities, asymmetry) |
+| **LESS Evaluation** | Landing Error Scoring System Engine (9 criteria items, classification) |
+| **Risk Scoring** | 5-Factor Risk Scoring Engine (`s_bio`, `s_hist`, `s_asym`, `s_load`, `s_fatigue`) |
+| **Containerisation** | Docker & Docker Compose (`compose.yaml`) with persistent volumes |
 
----
-
-## 🎯 Video Analysis Pipeline
-
-The analysis pipeline runs as a `BackgroundTask` after `POST /videos/{id}/analyze` returns 202:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Athlete
-    participant FE as Frontend (React)
-    participant BE as Backend (FastAPI)
-    participant BG as BackgroundTask
-    participant DB as PostgreSQL
-
-    Athlete->>FE: Click "Analyze Pose"
-    FE->>BE: POST /videos/{id}/analyze (JWT)
-    BE->>DB: INSERT analysis_results (status=PENDING)
-    BE-->>FE: 202 {analysis_id, status: PENDING}
-    BE->>BG: Enqueue _background_analyze()
-
-    loop Poll every 2s
-        FE->>BE: GET /videos/{id}/analysis
-        BE-->>FE: {status: PENDING|PROCESSING}
-    end
-
-    BG->>DB: UPDATE analysis_results (status=PROCESSING)
-    BG->>BG: VideoProcessingService (OpenCV)
-    BG->>BG: PoseEstimationService (MediaPipe)
-    BG->>DB: INSERT pose_landmarks (bulk, up to 9900 rows)
-    BG->>DB: UPDATE analysis_results (status=COMPLETED, metadata)
-
-    FE->>BE: GET /videos/{id}/analysis
-    BE-->>FE: {status: COMPLETED, fps, frames_processed, ...}
-    FE->>Athlete: Show completion card with metadata
-```
-
-### Status Lifecycle
-
-```
-PENDING → PROCESSING → COMPLETED
-                     ↘ FAILED (error_message saved)
-```
-
-### Landmark Storage Schema
-
-For each sampled frame, 33 `pose_landmarks` rows are written:
-
-| Column | Type | Description |
-|---|---|---|
-| `analysis_id` | UUID FK | Links to `analysis_results` |
-| `frame_number` | int | 0-indexed frame in original video |
-| `timestamp_ms` | float | ms from video start |
-| `landmark_index` | int | 0–32 (MediaPipe topology) |
-| `landmark_name` | str | e.g. `LEFT_KNEE`, `RIGHT_HIP` |
-| `x`, `y`, `z` | float | Normalised spatial coordinates |
-| `visibility` | float | Detection confidence [0,1] |
-
-A composite index on `(analysis_id, frame_number)` enables efficient feature engineering queries for angles, velocities, and symmetry in the next phase.

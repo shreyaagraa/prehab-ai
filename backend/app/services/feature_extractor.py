@@ -27,7 +27,7 @@ from app.models.pose_landmark import PoseLandmark
 from app.models.analysis_feature import AnalysisFeature
 
 MIN_VISIBILITY = 0.5
-FEATURE_VERSION = "v1"
+FEATURE_VERSION = "v2"
 
 
 def calculate_3d_angle(
@@ -262,8 +262,27 @@ class FeatureExtractor:
         max_vel = round(max(velocities), 4) if velocities else 0.0
         mean_vel = round(sum(velocities) / len(velocities), 4) if velocities else 0.0
 
+        knee_rom_mn = round((kl_rom + kr_rom) / 2.0, 2) if kl_rom is not None and kr_rom is not None else (kl_rom or kr_rom)
+        hip_rom_mn = round((hl_rom + hr_rom) / 2.0, 2) if hl_rom is not None and hr_rom is not None else (hl_rom or hr_rom)
+        ankle_rom_mn = round((al_rom + ar_rom) / 2.0, 2) if al_rom is not None and ar_rom is not None else (al_rom or ar_rom)
+
+        knee_asym = round(abs(kl_rom - kr_rom), 2) if kl_rom is not None and kr_rom is not None else None
+        hip_asym = round(abs(hl_rom - hr_rom), 2) if hl_rom is not None and hr_rom is not None else None
+        ankle_asym = round(abs(al_rom - ar_rom), 2) if al_rom is not None and ar_rom is not None else None
+
         feature_vector: dict[str, float | None] = {
-            # Knee
+            # Explicit V2 Kinematic Vector Features
+            "knee_rom_mean": knee_rom_mn,
+            "hip_rom_mean": hip_rom_mn,
+            "ankle_rom_mean": ankle_rom_mn,
+            "trunk_angle_mean": tr_mn,
+            "knee_asymmetry": knee_asym,
+            "hip_asymmetry": hip_asym,
+            "ankle_asymmetry": ankle_asym,
+            "mean_joint_velocity": mean_vel,
+            "total_joint_displacement": total_disp,
+
+            # Knee Detailed
             "knee_angle_left_mean": kl_mn,
             "knee_angle_left_min": kl_mi,
             "knee_angle_left_max": kl_ma,
@@ -274,7 +293,7 @@ class FeatureExtractor:
             "knee_angle_right_rom": kr_rom,
             "knee_symmetry_score": knee_sym,
 
-            # Hip
+            # Hip Detailed
             "hip_angle_left_mean": hl_mn,
             "hip_angle_left_min": hl_mi,
             "hip_angle_left_max": hl_ma,
@@ -285,7 +304,7 @@ class FeatureExtractor:
             "hip_angle_right_rom": hr_rom,
             "hip_symmetry_score": hip_sym,
 
-            # Ankle
+            # Ankle Detailed
             "ankle_angle_left_mean": al_mn,
             "ankle_angle_left_min": al_mi,
             "ankle_angle_left_max": al_ma,
@@ -296,16 +315,13 @@ class FeatureExtractor:
             "ankle_angle_right_rom": ar_rom,
             "ankle_symmetry_score": ankle_sym,
 
-            # Trunk
-            "trunk_angle_mean": tr_mn,
+            # Trunk Detailed
             "trunk_angle_min": tr_mi,
             "trunk_angle_max": tr_ma,
             "trunk_angle_rom": tr_rom,
 
             # Kinematics
-            "total_joint_displacement": total_disp,
             "max_joint_velocity": max_vel,
-            "mean_joint_velocity": mean_vel,
         }
 
         return feature_vector

@@ -1,0 +1,147 @@
+{
+  "model_framing": "Biomechanical Deviation Classifier \u2014 concurrent-injury status discriminator. NOT a prospective injury event predictor.",
+  "feature_version": "v1",
+  "label_type": "binary",
+  "random_seed": 42,
+  "test_size": 0.2,
+  "n_features": 9,
+  "features_used": [
+    "age",
+    "Height",
+    "Weight",
+    "speed_r",
+    "YrsRunning",
+    "NumRaces",
+    "Gender_enc",
+    "DominantLeg_enc",
+    "Level_enc"
+  ],
+  "feature_v1_mapping": {
+    "age": "athletes.age",
+    "Height": "athletes.height",
+    "Weight": "athletes.weight",
+    "speed_r": "mean_joint_velocity (proxy: running speed)",
+    "YrsRunning": "athletes.years_running (future schema field)",
+    "NumRaces": "training_load (activity-level proxy)",
+    "Gender_enc": "athletes.gender",
+    "DominantLeg_enc": "athletes.dominant_leg (future schema field)",
+    "Level_enc": "athletes.level (recreational vs. competitive)"
+  },
+  "n_train": 1396,
+  "n_test": 356,
+  "train_class_distribution": {
+    "total": 1396,
+    "n_classes": 2,
+    "counts": {
+      "Healthy (No Injury)": 535,
+      "Injured": 861
+    },
+    "percentages": {
+      "Healthy (No Injury)": 38.3,
+      "Injured": 61.7
+    }
+  },
+  "test_class_distribution": {
+    "total": 356,
+    "n_classes": 2,
+    "counts": {
+      "Healthy (No Injury)": 124,
+      "Injured": 232
+    },
+    "percentages": {
+      "Healthy (No Injury)": 34.8,
+      "Injured": 65.2
+    }
+  },
+  "accuracy": 0.6882,
+  "precision_macro": 0.6619,
+  "recall_macro": 0.6688,
+  "f1_macro": 0.6643,
+  "roc_auc": 0.7237,
+  "confusion_matrix": [
+    [
+      75,
+      49
+    ],
+    [
+      62,
+      170
+    ]
+  ],
+  "classification_report": {
+    "0": {
+      "precision": 0.5474452554744526,
+      "recall": 0.6048387096774194,
+      "f1-score": 0.5747126436781609,
+      "support": 124.0
+    },
+    "1": {
+      "precision": 0.776255707762557,
+      "recall": 0.7327586206896551,
+      "f1-score": 0.753880266075388,
+      "support": 232.0
+    },
+    "accuracy": 0.6882022471910112,
+    "macro avg": {
+      "precision": 0.6618504816185048,
+      "recall": 0.6687986651835373,
+      "f1-score": 0.6642964548767745,
+      "support": 356.0
+    },
+    "weighted avg": {
+      "precision": 0.6965576850554644,
+      "recall": 0.6882022471910112,
+      "f1-score": 0.6914735661392752,
+      "support": 356.0
+    }
+  },
+  "feature_importances": [
+    {
+      "feature": "speed_r",
+      "v1_mapping": "mean_joint_velocity (proxy: running speed)",
+      "importance": 0.28613
+    },
+    {
+      "feature": "age",
+      "v1_mapping": "athletes.age",
+      "importance": 0.19393
+    },
+    {
+      "feature": "YrsRunning",
+      "v1_mapping": "athletes.years_running (future schema field)",
+      "importance": 0.16511
+    },
+    {
+      "feature": "Weight",
+      "v1_mapping": "athletes.weight",
+      "importance": 0.13416
+    },
+    {
+      "feature": "Height",
+      "v1_mapping": "athletes.height",
+      "importance": 0.11561
+    },
+    {
+      "feature": "NumRaces",
+      "v1_mapping": "training_load (activity-level proxy)",
+      "importance": 0.05389
+    },
+    {
+      "feature": "Level_enc",
+      "v1_mapping": "athletes.level (recreational vs. competitive)",
+      "importance": 0.02244
+    },
+    {
+      "feature": "DominantLeg_enc",
+      "v1_mapping": "athletes.dominant_leg (future schema field)",
+      "importance": 0.01788
+    },
+    {
+      "feature": "Gender_enc",
+      "v1_mapping": "athletes.gender",
+      "importance": 0.01084
+    }
+  ],
+  "sklearn_pipeline": "Pipeline(steps=[('imputer', SimpleImputer(strategy='median')),\n                ('scaler', StandardScaler()),\n                ('clf',\n                 RandomForestClassifier(class_weight='balanced',\n                                        min_samples_leaf=5, n_estimators=200,\n                                        n_jobs=-1, random_state=42))])",
+  "model_notes": "Features are demographic metadata from run_data_meta.csv. The full kinematic dv_r features (peak_knee_flexion, knee_rom, etc.) from per-subject JSON files are not yet integrated \u2014 see docs/milestone3_ml_architecture.md Section 3 for the mapping table."
+}

@@ -1,0 +1,75 @@
+{
+  "model_version": "v2.0.0",
+  "model_type": "RandomForestClassifier",
+  "training_date": "2026-09-14T14:08:36.868341Z",
+  "feature_names": [
+    "knee_rom_mean",
+    "hip_rom_mean",
+    "ankle_rom_mean",
+    "trunk_angle_mean",
+    "knee_asymmetry",
+    "hip_asymmetry",
+    "ankle_asymmetry",
+    "mean_joint_velocity",
+    "total_joint_displacement"
+  ],
+  "feature_order": [
+    "knee_rom_mean",
+    "hip_rom_mean",
+    "ankle_rom_mean",
+    "trunk_angle_mean",
+    "knee_asymmetry",
+    "hip_asymmetry",
+    "ankle_asymmetry",
+    "mean_joint_velocity",
+    "total_joint_displacement"
+  ],
+  "target_definition": "Biomechanical deviation / concurrent injury-status classification",
+  "dataset_name": "Synthetic Kinematic Dataset v2",
+  "sample_count": 1200,
+  "class_distribution": {
+    "0": 600,
+    "1": 600
+  },
+  "evaluation_metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "macro_f1": 1.0,
+    "roc_auc": 1.0
+  },
+  "cv_f1_mean": 0.999,
+  "cv_f1_std": 0.0021,
+  "confusion_matrix": [
+    [
+      120,
+      0
+    ],
+    [
+      0,
+      120
+    ]
+  ],
+  "feature_importances": {
+    "knee_rom_mean": 0.0117,
+    "hip_rom_mean": 0.0142,
+    "ankle_rom_mean": 0.052,
+    "trunk_angle_mean": 0.1708,
+    "knee_asymmetry": 0.2409,
+    "hip_asymmetry": 0.0958,
+    "ankle_asymmetry": 0.1145,
+    "mean_joint_velocity": 0.0157,
+    "total_joint_displacement": 0.2844
+  },
+  "random_seed": 42,
+  "hyperparameters": {
+    "n_estimators": 200,
+    "max_depth": 10,
+    "min_samples_leaf": 5,
+    "class_weight": "balanced",
+    "random_state": 42
+  },
+  "is_synthetic": true,
+  "limitations": "The model was trained and evaluated using a synthetic dataset generated from biomechanical reference distributions and therefore reported performance does not establish clinical validity. This is a prototype risk-assessment system and is not a medical diagnosis or clinically validated injury prediction system."
+}

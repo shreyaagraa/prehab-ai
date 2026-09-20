@@ -17,19 +17,20 @@ flowchart TD
     D -- Complete Profile --> F[Upload Movement Video]
     F --> G[File stored on uploads volume + Video row in PostgreSQL]
 
-    C -- Coach / Physio / Scientist / Admin --> H[View Athlete Roster & Profiles]
+    C -- Coach / Physio / Scientist / Admin --> H[View Athlete Roster & Team Assessments]
 
     G --> I["POST /videos/{id}/analyze — FastAPI BackgroundTask"]
-    I --> I1["OpenCV: validate + extract every 5th frame"]
-    I1 --> I2["MediaPipe BlazePose: 33 landmarks per frame"]
-    I2 --> I3["Bulk-insert pose_landmarks rows into PostgreSQL"]
-    I3 --> I4["AnalysisResult status → COMPLETED"]
+    I --> I1["OpenCV: validate + extract sampled frames"]
+    I1 --> I2["MediaPipe BlazePose: 33 3D landmarks per frame"]
+    I2 --> I3["Feature Extractor: 15+ kinematic joint angles & asymmetry"]
+    I3 --> I4["LESS Scorer: 9 clinical criteria & error classification"]
+    I4 --> I5["5-Factor Risk Engine: s_bio, s_hist, s_asym, s_load, s_fatigue"]
+    I5 --> I6["AnalysisResult status → COMPLETED with overall_risk_score"]
 
-    I4 --> J[Biomechanical Feature Engineering - NEXT]
-    J --> K[ML Injury Prediction Model - PLANNED]
-    K --> L[Automated Recommendations Engine - PLANNED]
-    L --> M[PDF Reports & Analytics Dashboards - PLANNED]
-    H --> M
+    I6 --> J[View Interactive Movement Evaluation Report]
+    J --> K[Compare Progression Baseline Modal]
+    H --> J
+    H --> K
 ```
 
 ---
@@ -42,7 +43,7 @@ Below are the operational workflows for each of the five system roles defined in
 
 ### 1. Athlete Workflow
 
-The Athlete workflow focuses on physical baseline management and submitting movement videos for automated risk analysis.
+The Athlete workflow focuses on physical baseline management, submitting movement videos for automated analysis, and reviewing evaluation reports.
 
 ```mermaid
 flowchart LR
@@ -53,15 +54,13 @@ flowchart LR
     E --> C
     C -- Yes --> F[Access Video Analysis /analysis]
     F --> G[Select Video File max 500MB]
-    G --> H[POST /videos — Upload to filesystem]
+    G --> H[POST /videos — Upload file]
     H --> I[Analyze Button appears in UI]
     I --> J[POST /videos/{id}/analyze]
-    J --> K["BackgroundTask: OpenCV + MediaPipe"]
-    K --> L["pose_landmarks rows stored in DB"]
+    J --> K["BackgroundTask Pipeline"]
+    K --> L["OpenCV + MediaPipe + Kinematics + LESS + Risk Engine"]
     L --> M[Frontend polls status — PENDING→PROCESSING→COMPLETED]
-    M --> N[View Metadata: FPS, Duration, Frames Analysed]
-    N --> O[Injury Risk Scoring - NEXT PHASE]
-    O --> P[View Recommendations & Drills - PLANNED]
+    M --> N[View Full Report: Risk Score, LESS, Kinematics, Recommendations]
 ```
 
 #### Step-by-Step Breakdown:
@@ -70,92 +69,87 @@ flowchart LR
    * Receive a signed JWT token stored in client `localStorage`.
 2. **Profile Completion & Verification** (`IMPLEMENTED`)
    * Navigate to `/profile`. The system fetches profile state via `GET /api/v1/athletes/me`.
-   * If any of the five required parameters (**Sport**, **Position**, **Age**, **Height**, **Weight**) are missing, status is marked `⚠ Incomplete`.
+   * If any required physical parameters are missing, status is marked `⚠ Incomplete`.
    * Submit physical details via `PUT /api/v1/athletes/me`. `athlete_id` and `user_id` are derived server-side.
-   * Status updates to `✓ Complete`.
 3. **Profile-Gated Video Upload** (`IMPLEMENTED`)
-   * Navigate to `/analysis`. If the profile is incomplete, a warning banner redirects the user to `/profile`.
-   * If complete, the athlete's physical details header is rendered, unlocking the upload interface.
-   * Select a video file (MP4, MOV, AVI, WebM — max 500 MB) and click **Upload Video**.
-   * The file is uploaded via `POST /api/v1/videos` (`multipart/form-data`) with progress bar tracking (0–100%).
-   * The file is stored on the Docker `uploads_data` volume and a metadata row is written to PostgreSQL.
-4. **Pose Estimation Analysis** (`IMPLEMENTED`)
-   * After successful upload, click **Analyze Pose**.
-   * `POST /api/v1/videos/{video_id}/analyze` creates an `AnalysisResult` row (status=`PENDING`) and enqueues a FastAPI `BackgroundTask`.
-   * The frontend polls `GET /api/v1/videos/{video_id}/analysis` every 2 seconds, showing a live status badge (`PENDING → PROCESSING → COMPLETED`).
-   * The background worker uses **OpenCV** to extract every 5th frame (configurable via `FRAME_SAMPLE_RATE`, max 300 frames via `MAX_PROCESSED_FRAMES`).
-   * **MediaPipe BlazePose** extracts all 33 body landmarks (x, y, z, visibility) per frame.
-   * Raw landmark data is bulk-inserted into the `pose_landmarks` table.
-   * On completion, the UI shows video metadata: FPS, duration, resolution, frames analysed, and total landmark count.
-5. **Injury Risk Scoring** (`NEXT PHASE`)
-   * Feature engineering (knee/hip/ankle angles, symmetry, velocity) from `pose_landmarks`.
-   * ML model inference → `AnalysisResult.overall_risk_score`.
-6. **Targeted Recommendations & Corrective Drills** (`PLANNED`)
-   * Automated exercise routines generated from the risk prediction model.
+   * Navigate to `/analysis`. If profile is incomplete, a warning banner redirects the user to `/profile`.
+   * Upload video file (MP4, MOV, AVI, WebM — max 500 MB) via `POST /api/v1/videos`.
+   * File saved to persistent container volume (`/app/uploads`) with PostgreSQL metadata record.
+4. **AI Pose Estimation & Risk Analysis Pipeline** (`IMPLEMENTED`)
+   * Click **Analyze Pose**. `POST /api/v1/videos/{video_id}/analyze` queues background processing.
+   * Frontend polls `GET /api/v1/videos/{video_id}/analysis` every 2 seconds (`PENDING → PROCESSING → COMPLETED`).
+   * **OpenCV** extracts sampled frames (`FRAME_SAMPLE_RATE=5`).
+   * **MediaPipe BlazePose** extracts 33 3D body landmarks per frame.
+   * **Feature Extractor** computes 15+ joint angles, angular velocities, and bilateral asymmetries.
+   * **LESS Scorer** evaluates 9 clinical landing criteria and assigns error classification.
+   * **Risk Scoring Engine** computes 5-factor scores (`s_bio`, `s_hist`, `s_asym`, `s_load`, `s_fatigue`) and overall 0–100 risk score.
+5. **Interactive Movement Evaluation Report** (`IMPLEMENTED`)
+   * View full evaluation report featuring overall risk gauge, 5-factor breakdown, LESS checklist, joint kinematics, pose overlay player, and corrective recommendations.
 
 ---
 
 ### 2. Coach Workflow
 
-The Coach workflow centers on team roster monitoring, movement evaluation tracking, and training load adjustment.
+The Coach workflow centers on team roster monitoring, squad management, and movement evaluation progression tracking.
 
 ```mermaid
 flowchart LR
     A[Login as Coach] --> B[View Staff Dashboard]
-    B --> C[View Athlete Roster /athletes]
-    C --> D[Filter & Search Athletes]
-    D --> E[View Athlete Profiles GET /athletes/{id}]
-    E --> F[Review Biomechanical Results - PLANNED]
-    F --> G[Adjust Training Load & Notes - PLANNED]
+    B --> C[View Athlete Roster /roster]
+    C --> D[Filter Roster: High Risk / Injured / Reassessment]
+    D --> E[View / Provision Athlete Profiles]
+    B --> F[View Team Assessments /assessments]
+    F --> G[Filter Assessments: High / Moderate / Low Risk]
+    G --> H[Open Side-by-Side Baseline Progression Comparison]
 ```
 
 #### Step-by-Step Breakdown:
-1. **Authentication** (`IMPLEMENTED`)
-   * Log in via `/login` with a `Coach` user account.
-   * System grants access to staff endpoints (`require_roles(Coach, Physiotherapist, Sports Scientist, Administrator)`).
-2. **Athlete Roster Management** (`IMPLEMENTED`)
-   * Navigate to `/athletes` (`GET /api/v1/athletes`).
-   * Search and filter athletes across the team roster by name, email, or sport.
-   * View individual athlete details via `GET /api/v1/athletes/{athlete_id}`.
-3. **Manual Profile Provisioning** (`IMPLEMENTED`)
-   * Provision athlete profiles on behalf of squad members via `POST /api/v1/athletes` or update baseline values via `PATCH /api/v1/athletes/{id}`.
-4. **Team Risk Monitoring & Analytics** (`PLANNED`)
-   * Access high-level team injury risk trends on `/dashboard`.
-   * Identify athletes with elevated risk flags (e.g., High ACL or Hamstring strain probability).
-5. **Training Load Modification & Coach Notes** (`PLANNED`)
-   * Record custom coach notes and adjust daily/weekly training load parameters in `athletes.training_load` to prevent overuse injuries.
-6. **Explicit Squad Assignment Mapping** (`PLANNED`)
-   * Direct Coach 1:N or M:N assigned squad mapping is marked as planned until dedicated team junction tables are added to the schema.
+1. **Authentication & Access Control** (`IMPLEMENTED`)
+   * Log in via `/login` with a `Coach` account. Staff navigation and endpoints unlocked via RBAC dependencies.
+2. **Squad Roster Management** (`IMPLEMENTED`)
+   * Access athlete roster on `/roster` (`GET /api/v1/athletes`).
+   * Filter squad members by group filters (`High Risk`, `Injured`, `Reassessment`) or search by name, sport, position.
+   * Provision new athlete profiles (`POST /api/v1/athletes`) or update physical baselines (`PATCH /api/v1/athletes/{id}`).
+3. **Team Assessment Review** (`IMPLEMENTED`)
+   * Access team assessment evaluations on `/assessments` (`GET /api/v1/videos/assessments`).
+   * Filter by Risk Level (`All`, `High Risk`, `Moderate Risk`, `Low Risk`).
+   * View full movement analysis report for any athlete.
+4. **Baseline Progression Comparison** (`IMPLEMENTED`)
+   * Click **Compare** on any assessment to open the progression modal.
+   * System automatically matches the athlete's immediately preceding completed evaluation from database history.
+   * Displays directional risk deltas (`Worsened` / `Improved` / `Unchanged`), score differences, and key metrics comparison (Risk Score, LESS Score, Biomechanical Risk, Asymmetry, Fatigue).
 
 ---
 
 ### 3. Physiotherapist Workflow
 
-The Physiotherapist workflow is tailored toward clinical biomechanical review, injury history tracking, and rehabilitation plan oversight.
+The Physiotherapist workflow is tailored toward clinical movement evaluation, injury status tracking, and technique error review.
 
 ```mermaid
 flowchart LR
-    A[Login as Physio] --> B[View Clinical Dashboard]
-    B --> C[Access Athlete Roster /athletes]
-    C --> D[View Athlete Profile & Baseline Metrics]
-    D --> E[Track Injury History - PLANNED]
-    E --> F[Review Joint Kinematic Results - PLANNED]
-    F --> G[Prescribe Rehab & Recovery Plans - PLANNED]
+    A[Login as Physio] --> B[View Clinical Roster & Team Assessments]
+    B --> C[Review High-Risk & Injured Athletes]
+    C --> D[Examine Detailed LESS & Kinematic Reports]
+    D --> E[Compare Current vs Baseline Tests]
+    E --> F[Prescribe Corrective Drills & Injury Status]
 ```
 
 #### Step-by-Step Breakdown:
 1. **Authentication** (`IMPLEMENTED`)
-   * Log in via `/login` as a `Physiotherapist`. Access controlled by RBAC dependencies.
-2. **Athlete Clinical Review** (`IMPLEMENTED`)
-   * Access athlete records via `/athletes` (`GET /api/v1/athletes` & `GET /api/v1/athletes/{id}`).
-   * Inspect physical parameters (Height, Weight, Flexibility, Strength, Balance, Endurance baselines).
-3. **Injury History & Medical Tracking** (`PLANNED`)
+   * Log in via `/login` as a `Physiotherapist`. Authorized for staff endpoints.
+2. **Clinical Movement Evaluation** (`IMPLEMENTED`)
+   * Review athlete evaluation reports (`/analysis/:videoId`) with 5-factor risk score breakdown and LESS criteria checklist.
+3. **Bilateral Asymmetry & Joint Kinematics Inspection** (`IMPLEMENTED`)
+   * Inspect extracted joint angles, valgus index, and side-to-side asymmetry percentages.
+4. **Progression & Recovery Tracking** (`IMPLEMENTED`)
+   * Use assessment comparison modal (`/assessments`) to evaluate biomechanical recovery between initial test and post-rehab re-evaluation.
+5. **Injury History & Medical Tracking** (`PLANNED`)
    * Review past injury records from the `injury_history` table (body part, severity, injury date, recovery date, clinical remarks).
-4. **Biomechanical Kinematic Audit** (`PLANNED`)
+6. **Biomechanical Kinematic Audit** (`PLANNED`)
    * Audit detailed frame-by-frame joint angle breakdowns (e.g., knee flexion angle at landing, trunk tilt, hip drop).
-5. **Rehabilitation & Mobility Prescription** (`PLANNED`)
+7. **Rehabilitation & Mobility Prescription** (`PLANNED`)
    * Review system-generated recommendations and prescribe customized physical therapy routines, mobility protocols, and recovery plans stored in `recommendations`.
-6. **Explicit Patient Assignment Mapping** (`PLANNED`)
+8. **Explicit Patient Assignment Mapping** (`PLANNED`)
    * Direct Physiotherapist-to-patient assignment scoping is marked as planned until explicit assignment junction tables are introduced.
 
 ---
@@ -226,8 +220,10 @@ flowchart LR
 | Delete Athlete Profile | ❌ | ❌ | ❌ | ❌ | ✅ | `IMPLEMENTED` |
 | Upload Video Binary (`POST /videos` BYTEA) | ✅ | ❌ | ❌ | ❌ | ❌ | `IMPLEMENTED` |
 | Profile-Gated Video Upload UI | ✅ | ❌ | ❌ | ❌ | ❌ | `IMPLEMENTED` |
-| Pose Keypoint Overlay View | 🔮 | 🔮 | 🔮 | 🔮 | 🔮 | `PLANNED` |
-| Review Kinematic Risk Scores | 🔮 | 🔮 | 🔮 | 🔮 | 🔮 | `PLANNED` |
+| 5-Factor Movement Risk Report | ✅ | ✅ | ✅ | ✅ | ✅ | `IMPLEMENTED` |
+| LESS 17-Item Protocol Evaluation | ✅ | ✅ | ✅ | ✅ | ✅ | `IMPLEMENTED` |
+| Side-by-Side Baseline Comparison Modal | ❌ | ✅ | ✅ | ✅ | ✅ | `IMPLEMENTED` |
+| Pose Keypoint Overlay Video Canvas | 🔮 | 🔮 | 🔮 | 🔮 | 🔮 | `PLANNED` |
 | Prescribe Rehab & Recovery Plans | ❌ | ❌ | 🔮 | ❌ | ❌ | `PLANNED` |
 | Advanced Biomechanical Analytics | ❌ | ❌ | ❌ | 🔮 | 🔮 | `PLANNED` |
 | PDF Report Generation | 🔮 | 🔮 | 🔮 | 🔮 | 🔮 | `PLANNED` |

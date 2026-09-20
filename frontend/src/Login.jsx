@@ -43,13 +43,13 @@ function Login() {
 
                 <div className="auth-header">
                     <div className="auth-logo">
-                        <Activity size={28} />
+                        <img src="/logo.png" alt="PreHab AI" className="auth-logo-img" />
                     </div>
 
                     <h1>Welcome back</h1>
 
                     <p>
-                        Sign in to your AthleSense
+                        Sign in to your PreHab AI
                         account.
                     </p>
                 </div>

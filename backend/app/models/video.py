@@ -91,3 +91,9 @@ class Video(Base):
         BigInteger,
         nullable=True
     )
+
+    # Custom assessment title set by user.
+    title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )

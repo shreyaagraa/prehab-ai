@@ -8,6 +8,7 @@ import {
 import {
     loginUser,
     registerUser,
+    googleLoginUser,
     getCurrentUser
 } from "../api/auth";
 
@@ -73,10 +74,32 @@ export function AuthProvider({ children }) {
         return currentUser;
     }
 
-    async function register(data) {
-    const registeredUser = await registerUser(data);
+    async function loginWithGoogle(credential, password = null) {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("user");
 
-    return registeredUser;
+        const data = await googleLoginUser(credential, password);
+
+        const token = data.access_token;
+
+        localStorage.setItem("access_token", token);
+
+        const currentUser = await getCurrentUser();
+
+        localStorage.setItem(
+            "user",
+            JSON.stringify(currentUser)
+        );
+
+        setUser(currentUser);
+
+        return currentUser;
+    }
+
+    async function register(data) {
+        const registeredUser = await registerUser(data);
+
+        return registeredUser;
     }
 
     function logout() {
@@ -92,6 +115,7 @@ export function AuthProvider({ children }) {
                 user,
                 loading,
                 login,
+                loginWithGoogle,
                 register,
                 logout,
                 isAuthenticated: Boolean(user)
@@ -103,5 +127,17 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-    return useContext(AuthContext);
-}
+    const context = useContext(AuthContext);
+    if (!context) {
+        return {
+            user: null,
+            loading: false,
+            isAuthenticated: false,
+            login: async () => {},
+            loginWithGoogle: async () => {},
+            register: async () => {},
+            logout: () => {},
+        };
+    }
+    return context;
+}

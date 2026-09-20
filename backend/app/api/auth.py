@@ -11,12 +11,16 @@ from sqlalchemy import func
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, RoleEnum
-from app.schemas.auth import UserRegisterRequest, UserResponse, TokenResponse
+from app.schemas.auth import UserRegisterRequest, UserResponse, TokenResponse, GoogleLoginRequest
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.dependencies import get_current_user, require_role, require_roles
+
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -150,6 +154,183 @@ def login(
     )
 
     return TokenResponse(access_token=access_token, token_type="bearer")
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Authenticate or register with Google OAuth 2.0 / OpenID Connect ID token",
+    description=(
+        "Verifies Google ID token server-side using Google's official verification SDK. "
+        "Authenticates existing Google users, handles secure account linking for existing password users, "
+        "or registers a new Athlete user account."
+    ),
+)
+def google_auth(
+    body: GoogleLoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """
+    Google OAuth Authentication Handler:
+    1. Cryptographically verifies Google ID token (signature, aud, iss, exp, email_verified).
+    2. Extracts sub, email, name, profile image.
+    3. Looks up user by google_sub first.
+    4. If not found by google_sub, checks by email:
+       - Requires password authentication if user has existing password account (ACCOUNT_LINKING_REQUIRED).
+       - Explicitly links google_sub upon password confirmation.
+    5. If user does not exist, registers new Athlete user marked email_verified.
+    6. Returns application JWT token.
+    """
+    # 1. Verify Google ID token
+    try:
+        req = google_requests.Request()
+        aud = settings.GOOGLE_CLIENT_ID if settings.GOOGLE_CLIENT_ID else None
+        id_info = id_token.verify_oauth2_token(body.credential, req, audience=aud)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid Google ID token: {str(exc)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Failed to verify Google ID token with Google servers.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    # 2. Validate Issuer & Claims
+    issuer = id_info.get("iss")
+    if issuer not in ["accounts.google.com", "https://accounts.google.com"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token issuer.",
+        )
+
+    # Validate email_verified claim
+    email_verified = id_info.get("email_verified")
+    if email_verified is not True and str(email_verified).lower() != "true":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google account email is not verified.",
+        )
+
+    google_sub = id_info.get("sub")
+    raw_email = id_info.get("email")
+    if not google_sub or not raw_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google ID token missing required identity claims.",
+        )
+
+    email = raw_email.strip().lower()
+    name = id_info.get("name") or email.split("@")[0]
+    picture = id_info.get("picture")
+
+    # 3. Lookup user by google_sub
+    user = db.query(User).filter(User.google_sub == google_sub).first()
+
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been deactivated. Please contact support.",
+            )
+        # Refresh profile picture if available and user doesn't have one
+        if picture and not user.profile_image:
+            user.profile_image = picture
+            db.commit()
+    else:
+        # 4. Check if email belongs to an existing password account
+        existing_email_user = db.query(User).filter(func.lower(User.email) == email).first()
+
+        if existing_email_user:
+            if not existing_email_user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This account has been deactivated. Please contact support.",
+                )
+
+            # Account Linking Policy Enforcement:
+            # Require authentication with the existing password account before linking.
+            if not body.password:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ACCOUNT_LINKING_REQUIRED: An account with this email already exists. Please enter your password to link your Google account.",
+                )
+
+            # Validate the provided account password
+            _DUMMY_HASH = (
+                "$argon2id$v=19$m=65536,t=3,p=4"
+                "$dGhpcyBpcyBhIGZha2Ugc2FsdA"
+                "$dGhpcyBpcyBhIGZha2UgaGFzaA"
+            )
+            stored_hash = existing_email_user.password if existing_email_user.password else _DUMMY_HASH
+            password_ok = verify_password(body.password, stored_hash)
+
+            if not password_ok:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Incorrect password for account linking.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+            # Link Google identity
+            existing_email_user.google_sub = google_sub
+            existing_email_user.is_verified = True
+            if picture and not existing_email_user.profile_image:
+                existing_email_user.profile_image = picture
+            
+            try:
+                db.commit()
+                db.refresh(existing_email_user)
+            except Exception as exc:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to link Google account.",
+                ) from exc
+
+            user = existing_email_user
+        else:
+            # 5. Create new Google user
+            new_user = User(
+                user_id=uuid.uuid4(),
+                name=name,
+                email=email,
+                password=None,
+                google_sub=google_sub,
+                role=RoleEnum.ATHLETE,
+                profile_image=picture,
+                is_active=True,
+                is_verified=True,
+            )
+
+            try:
+                db.add(new_user)
+                db.commit()
+                db.refresh(new_user)
+            except Exception as exc:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="An error occurred while creating your Google account.",
+                ) from exc
+
+            user = new_user
+
+    # 6. Issue application JWT access token
+    access_token = create_access_token(
+        subject=str(user.user_id),
+        role=user.role.value,
+        secret_key=settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+    return TokenResponse(access_token=access_token, token_type="bearer")
+
 
 
 @router.get(
