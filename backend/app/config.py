@@ -1,7 +1,5 @@
-from typing import List, Optional
-# pyrefly: ignore [missing-import]
-from pydantic import computed_field
-# pyrefly: ignore [missing-import]
+from typing import List, Optional, Union
+from pydantic import computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,7 +53,18 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        "https://prehab-ai.vercel.app",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                import json
+                return json.loads(v)
+            return [i.strip() for i in v.split(",") if i.strip()]
+        return v
 
     # Authentication & Security Placeholders (Configured for future phases)
     SECRET_KEY: str = "dev-insecure-secret-key-replace-in-production-environments"
