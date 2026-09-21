@@ -1,4 +1,18 @@
-import api from "./axios";
+import api, { getApiBaseUrl } from "./axios.js";
+
+/**
+ * Derive the media base URL from the configured API base URL.
+ *
+ * The API base is e.g. "http://localhost:8000/api/v1".
+ * Video files are served from "http://localhost:8000/uploads/...".
+ * This helper strips the "/api/v1" suffix to get the origin.
+ *
+ * @returns {string} Origin base, e.g. "http://localhost:8000"
+ */
+export function getMediaBaseUrl() {
+    const apiBase = getApiBaseUrl();
+    return apiBase.replace(/\/api\/v\d+\/?$/, "").replace(/\/+$/, "");
+}
 
 /**
  * Upload a video file for the authenticated athlete.
@@ -174,17 +188,4 @@ export async function updateVideoAssessment(videoId, data) {
     return response.data;
 }
 
-/**
- * Derive the media base URL from the configured API base URL.
- *
- * The API base is e.g. "http://127.0.0.1:8000/api/v1".
- * Video files are served from "http://127.0.0.1:8000/uploads/...".
- * This helper strips the "/api/v1" suffix to get the origin.
- *
- * @returns {string} Origin base, e.g. "http://127.0.0.1:8000"
- */
-export function getMediaBaseUrl() {
-    const apiBase =
-        import.meta?.env?.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
-    return apiBase.replace(/\/api\/v\d+\/?$/, "").replace(/\/$/, "");
-}
+
