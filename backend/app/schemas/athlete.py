@@ -111,12 +111,19 @@ class AthleteCreate(BaseModel):
         return cleaned if cleaned else None
 
 
+import re
+
+EMAIL_REGEX = re.compile(
+    r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+)
+
+
 class AthleteWithUserCreate(BaseModel):
     """
     Schema for creating a user account and athlete profile in a single coach action.
     """
     name: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr
+    email: str
     password: str = Field("Athlete123!", min_length=6)
     sport: Optional[str] = "Football"
     position: Optional[str] = "Forward"
@@ -131,6 +138,19 @@ class AthleteWithUserCreate(BaseModel):
     has_injury_history: Optional[str] = None
     coach_notes: Optional[str] = None
     injury_status: Optional[str] = "Healthy"
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise ValueError("Email must be a string")
+        cleaned = v.strip().lower()
+        if not EMAIL_REGEX.match(cleaned):
+            raise ValueError("Invalid email format. Must be a valid email address with domain extension (e.g., name@example.com).")
+        parts = cleaned.split("@")
+        if len(parts) != 2 or "." not in parts[1]:
+            raise ValueError("Email domain must contain a valid domain extension.")
+        return cleaned
 
 
 class AthleteAssign(BaseModel):

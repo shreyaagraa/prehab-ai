@@ -67,17 +67,30 @@ def _verify_athlete_access(athlete_id: UUID, current_user: User, db: Session) ->
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to access reports for an athlete not assigned to you.",
             )
-    elif current_user.role in (
-        RoleEnum.ADMINISTRATOR,
-        RoleEnum.PHYSIOTHERAPIST,
-        RoleEnum.SPORTS_SCIENTIST,
-    ):
-        pass
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your role is not authorized to access reports.",
-        )
+
+    # Check athlete-controlled report sharing permissions for staff roles
+    if current_user.role in (RoleEnum.COACH, RoleEnum.PHYSIOTHERAPIST, RoleEnum.SPORTS_SCIENTIST):
+        from app.models.report_share import ReportShare
+        role_code_map = {
+            RoleEnum.COACH: "Coach",
+            RoleEnum.PHYSIOTHERAPIST: "Physiotherapist",
+            RoleEnum.SPORTS_SCIENTIST: "SportsScientist",
+        }
+        target_role = role_code_map.get(current_user.role)
+        if target_role:
+            share_rec = (
+                db.query(ReportShare)
+                .filter(
+                    ReportShare.athlete_id == athlete.athlete_id,
+                    ReportShare.target_role == target_role,
+                )
+                .first()
+            )
+            if share_rec and not share_rec.is_authorized:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access to athlete reports for {target_role} has been revoked by the athlete/guardian.",
+                )
 
     return athlete
 

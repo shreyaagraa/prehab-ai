@@ -21,6 +21,20 @@ import {
 import { useAuth } from "../context/AuthContext";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 
+import { Calendar } from "lucide-react";
+
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+function validateEmail(email) {
+  if (!email || typeof email !== "string") return false;
+  const clean = email.trim().toLowerCase();
+  if (!EMAIL_REGEX.test(clean)) return false;
+  const parts = clean.split("@");
+  if (parts.length !== 2) return false;
+  const domain = parts[1];
+  return domain.includes(".") && !domain.startsWith(".") && !domain.endsWith(".");
+}
+
 function Register() {
   const navigate = useNavigate();
 
@@ -30,7 +44,8 @@ function Register() {
     email: "",
     password: "",
     name: "",
-    role: "Athlete"
+    role: "Athlete",
+    date_of_birth: "",
   });
 
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -61,6 +76,16 @@ function Register() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (!validateEmail(form.email)) {
+      setError("Please enter a valid email address with a domain extension (e.g. name@example.com).");
+      return;
+    }
+
+    if (!form.date_of_birth) {
+      setError("Date of Birth is required for age calculation and minor protection.");
+      return;
+    }
 
     if (confirmPassword && form.password !== confirmPassword) {
       setError("Passwords do not match. Please verify your password.");
@@ -304,6 +329,21 @@ function Register() {
                   placeholder="name@example.com"
                   required
                   autoComplete="email"
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="register-dob">Date of Birth (Age Verification)</label>
+              <div className="input-group-icon">
+                <Calendar size={18} className="field-icon" />
+                <input
+                  id="register-dob"
+                  type="date"
+                  name="date_of_birth"
+                  value={form.date_of_birth}
+                  onChange={updateField}
+                  required
                 />
               </div>
             </div>

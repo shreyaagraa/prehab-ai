@@ -23,6 +23,13 @@ Base.metadata.create_all(bind=active_engine)
 
 # Ensure newly added columns exist in the SQLite test database schema
 inspector = inspect(active_engine)
+if "users" in inspector.get_table_names():
+    existing_user_cols = {c["name"] for c in inspector.get_columns("users")}
+    with active_engine.connect() as conn:
+        if "date_of_birth" not in existing_user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN date_of_birth DATE"))
+        conn.commit()
+
 if "notifications" in inspector.get_table_names():
     existing_cols = {c["name"] for c in inspector.get_columns("notifications")}
     with active_engine.connect() as conn:

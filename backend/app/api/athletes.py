@@ -630,6 +630,14 @@ def update_athlete(
                 detail="You can only update your own athlete profile.",
             )
 
+    elif current_user.role == RoleEnum.COACH:
+
+        if athlete.coach_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update an athlete profile not assigned to your roster.",
+            )
+
     elif current_user.role not in ATHLETE_MANAGEMENT_ROLES:
 
         raise HTTPException(

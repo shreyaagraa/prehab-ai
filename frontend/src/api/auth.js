@@ -42,3 +42,8 @@ export async function getCurrentUser() {
   return response.data;
 }
 
+export async function updateUserProfile(data) {
+  const response = await api.patch("/auth/me", data);
+  return response.data;
+}
+

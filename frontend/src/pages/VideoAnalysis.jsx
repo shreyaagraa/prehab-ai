@@ -34,6 +34,9 @@ import {
 } from "../api/videos";
 import { getMyAthleteProfile } from "../api/athletes";
 
+import ConsentGateModal from "../components/ConsentGateModal";
+import { getConsentStatus } from "../api/consent";
+
 const REQUIRED_FIELDS = ["sport", "position", "age", "height", "weight"];
 
 function isProfileComplete(profile) {
@@ -69,6 +72,10 @@ function VideoAnalysis() {
     const [profile, setProfile] = useState(null);
     const [profileLoading, setProfileLoading] = useState(true);
     const [profileError, setProfileError] = useState("");
+
+    // Consent modal state
+    const [showConsentModal, setShowConsentModal] = useState(false);
+    const [pendingUploadFile, setPendingUploadFile] = useState(null);
 
     // Upload state
     const [file, setFile] = useState(null);
@@ -269,10 +276,9 @@ function VideoAnalysis() {
         }
     }, [uploadedVideo, analyzing]);
 
-    // Upload & Analyze workflow
-    async function handleUpload(event) {
-        event.preventDefault();
-        if (!file) return;
+    async function executeActualUpload(targetFile) {
+        const fileToUpload = targetFile || file;
+        if (!fileToUpload) return;
 
         setUploading(true);
         setUploadError("");
@@ -286,7 +292,7 @@ function VideoAnalysis() {
         setAnalyzeError("");
 
         try {
-            const videoMeta = await uploadVideoFile(file, (pct) => {
+            const videoMeta = await uploadVideoFile(fileToUpload, (pct) => {
                 const numericPct = typeof pct === "number" ? pct : 0;
                 setUploadPct(numericPct);
             });
@@ -301,6 +307,36 @@ function VideoAnalysis() {
             setUploadError(
                 err.response?.data?.detail || "Video upload failed. Please try again."
             );
+        }
+    }
+
+    // Upload & Analyze workflow with Consent Gate check
+    async function handleUpload(event) {
+        event.preventDefault();
+        if (!file) return;
+
+        setUploadError("");
+
+        // Check consent status before uploading
+        try {
+            const consentRes = await getConsentStatus();
+            if (!consentRes.can_upload) {
+                setPendingUploadFile(file);
+                setShowConsentModal(true);
+                return;
+            }
+        } catch (err) {
+            console.warn("Could not check consent status prior to upload:", err);
+        }
+
+        await executeActualUpload(file);
+    }
+
+    function handleConsentGranted() {
+        setShowConsentModal(false);
+        if (pendingUploadFile || file) {
+            executeActualUpload(pendingUploadFile || file);
+            setPendingUploadFile(null);
         }
     }
 
@@ -601,6 +637,12 @@ function VideoAnalysis() {
                         />
                     </div>
                 )}
+                {/* ── Consent Gate Modal ─────────────────────────────────────── */}
+                <ConsentGateModal
+                    isOpen={showConsentModal}
+                    onClose={() => setShowConsentModal(false)}
+                    onConsentGranted={handleConsentGranted}
+                />
             </main>
         </div>
     );

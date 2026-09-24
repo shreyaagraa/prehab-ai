@@ -1,18 +1,15 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from enum import Enum
 
 # pyrefly: ignore [missing-import]
-from sqlalchemy import Column, String, Text, DateTime, Boolean, Enum as SQLEnum
+from sqlalchemy import Column, String, Text, DateTime, Date, Boolean, Enum as SQLEnum
 # pyrefly: ignore [missing-import]
 from sqlalchemy.dialects.postgresql import UUID
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Mapped, mapped_column
 # pyrefly: ignore [missing-import]
-from sqlalchemy import String, Text, DateTime, Boolean, Enum as SQLEnum, func
-
-# pyrefly: ignore [missing-import]
-from sqlalchemy import Boolean
+from sqlalchemy import String, Text, DateTime, Date, Boolean, Enum as SQLEnum, func
 
 from app.database import Base
 
@@ -27,8 +24,6 @@ class RoleEnum(str, Enum):
 
 class User(Base):
     __tablename__ = "users"
-
-
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -80,6 +75,11 @@ class User(Base):
         nullable=True,
     )
 
+    date_of_birth: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -95,3 +95,19 @@ class User(Base):
         default=False,
         nullable=False,
     )
+
+    @property
+    def computed_age(self) -> int | None:
+        if self.date_of_birth is None:
+            return None
+        today = date.today()
+        return (
+            today.year
+            - self.date_of_birth.year
+            - ((today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day))
+        )
+
+    @property
+    def is_minor(self) -> bool:
+        age_val = self.computed_age
+        return age_val is not None and age_val < 18

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Dict
 
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Index, text
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Index, text, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -89,7 +89,7 @@ class AnalysisLESS(Base):
     )
 
     items: Mapped[List[Dict[str, Any]]] = mapped_column(
-        JSONB,
+        JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
     )
 

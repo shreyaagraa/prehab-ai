@@ -13,6 +13,8 @@ from app.models.recommendation import Recommendation
 from app.models.notification import Notification
 from app.models.report import Report
 from app.models.performance_record import PerformanceRecord
+from app.models.consent_record import ConsentRecord, ConsentPurposeEnum, ConsentStatusEnum
+from app.models.report_share import ReportShare
 
 
 __all__ = [
@@ -30,4 +32,8 @@ __all__ = [
     "Notification",
     "Report",
     "PerformanceRecord",
+    "ConsentRecord",
+    "ConsentPurposeEnum",
+    "ConsentStatusEnum",
+    "ReportShare",
 ]

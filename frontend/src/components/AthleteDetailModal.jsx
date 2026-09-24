@@ -4,7 +4,7 @@ import RiskBadge from "./RiskBadge";
 import { assignAthlete } from "../api/athletes";
 import { useAuth } from "../context/AuthContext";
 
-function AthleteDetailModal({ isOpen, onClose, athlete, onUpdate }) {
+function AthleteDetailModal({ isOpen, onClose, athlete, onUpdate, onEditProfile }) {
   const { user: currentUser } = useAuth();
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(athlete?.coach_notes || "");
@@ -101,15 +101,31 @@ function AthleteDetailModal({ isOpen, onClose, athlete, onUpdate }) {
               </select>
             </div>
 
-            <button
-              type="button"
-              className={isAssignedToMe ? "secondary-button" : "primary-button"}
-              onClick={handleToggleAssign}
-              disabled={saving}
-              style={{ fontSize: "0.85rem", padding: "7px 14px" }}
-            >
-              {isAssignedToMe ? "Unassign from Me" : "Assign to My Roster"}
-            </button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {(currentUser?.role === "Coach" || currentUser?.role === "Admin" || currentUser?.role === "Physiotherapist") && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    onClose();
+                    if (onEditProfile) onEditProfile(athlete);
+                  }}
+                  style={{ fontSize: "0.85rem", padding: "7px 14px", display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <Edit3 size={15} /> Edit Profile
+                </button>
+              )}
+
+              <button
+                type="button"
+                className={isAssignedToMe ? "secondary-button" : "primary-button"}
+                onClick={handleToggleAssign}
+                disabled={saving}
+                style={{ fontSize: "0.85rem", padding: "7px 14px" }}
+              >
+                {isAssignedToMe ? "Unassign from Me" : "Assign to My Roster"}
+              </button>
+            </div>
           </div>
 
           {/* Section 2: Key Risk & Performance Metrics Grid (4-Card Equal Grid) */}

@@ -19,6 +19,8 @@ from app.api.videos import router as videos_router
 from app.api.injury_history import router as injury_history_router
 from app.api.notifications import router as notifications_router
 from app.api.reports import router as reports_router
+from app.api.consent import router as consent_router
+from app.api.report_sharing import router as report_sharing_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -60,6 +62,14 @@ app.include_router(notifications_router)
 # Include Report Routes under both /api/v1 and root
 app.include_router(reports_router, prefix=settings.API_V1_STR)
 app.include_router(reports_router)
+
+# Include Consent Routes under both /api/v1 and root
+app.include_router(consent_router, prefix=settings.API_V1_STR)
+app.include_router(consent_router)
+
+# Include Report Sharing Routes under both /api/v1 and root
+app.include_router(report_sharing_router, prefix=settings.API_V1_STR)
+app.include_router(report_sharing_router)
 
 
 # ── Static file serving for uploaded videos ──────────────────────────────────

@@ -102,6 +102,17 @@ export function AuthProvider({ children }) {
         return registeredUser;
     }
 
+    async function refreshUser() {
+        try {
+            const currentUser = await getCurrentUser();
+            setUser(currentUser);
+            localStorage.setItem("user", JSON.stringify(currentUser));
+            return currentUser;
+        } catch (err) {
+            console.warn("Could not refresh user session", err);
+        }
+    }
+
     function logout() {
         localStorage.removeItem("access_token");
         localStorage.removeItem("user");
@@ -117,6 +128,7 @@ export function AuthProvider({ children }) {
                 login,
                 loginWithGoogle,
                 register,
+                refreshUser,
                 logout,
                 isAuthenticated: Boolean(user)
             }}

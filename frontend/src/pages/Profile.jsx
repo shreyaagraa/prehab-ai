@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
+import { updateUserProfile } from "../api/auth";
+import PrivacyAndConsentSection from "../components/PrivacyAndConsentSection";
 import {
     getMyAthleteProfile,
     upsertMyAthleteProfile,
@@ -60,8 +62,16 @@ const FATIGUE_DESCRIPTORS = {
 };
 
 function Profile() {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const isAthlete = user?.role === "Athlete";
+
+    // User/Coach profile edit state
+    const [isEditingUser, setIsEditingUser] = useState(false);
+    const [userName, setUserName] = useState("");
+    const [userPhone, setUserPhone] = useState("");
+    const [userDob, setUserDob] = useState("");
+    const [savingUser, setSavingUser] = useState(false);
+    const [userSaveMsg, setUserSaveMsg] = useState({ type: "", text: "" });
 
     // Athlete profile state
     const [profile, setProfile] = useState(null);
@@ -255,6 +265,38 @@ function Profile() {
         setIsEditing(false);
         setSaveMsg({ type: "", text: "" });
         populateForm(profile);
+    }
+
+    function handleOpenUserEdit() {
+        setUserName(user?.name || "");
+        setUserPhone(user?.phone || "");
+        setUserDob(user?.date_of_birth || "");
+        setUserSaveMsg({ type: "", text: "" });
+        setIsEditingUser(true);
+    }
+
+    async function handleSaveUserProfile(e) {
+        e.preventDefault();
+        setSavingUser(true);
+        setUserSaveMsg({ type: "", text: "" });
+
+        try {
+            await updateUserProfile({
+                name: userName.trim() || undefined,
+                phone: userPhone.trim() || undefined,
+                date_of_birth: userDob || undefined,
+            });
+            if (refreshUser) await refreshUser();
+            setUserSaveMsg({ type: "success", text: "Profile information saved successfully!" });
+            setIsEditingUser(false);
+        } catch (err) {
+            setUserSaveMsg({
+                type: "error",
+                text: err.response?.data?.detail || "Unable to update profile. Please try again.",
+            });
+        } finally {
+            setSavingUser(false);
+        }
     }
 
     const completedFieldsCount = CORE_FIELDS.filter(
@@ -570,12 +612,22 @@ function Profile() {
                     /* ── COACH PROFILE VIEW (ROLE-SPECIFIC & PROFESSIONAL) ───── */
                     <>
                         {/* ── Page Header ─────────────────────────────────────────────── */}
-                        <div className="page-header">
+                        <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
                             <div>
                                 <span className="eyebrow">COACH WORKSPACE</span>
                                 <h1>Coach Profile & Staff Details</h1>
                                 <p>Manage personal details, staff identity, roster administration credentials, and account security.</p>
                             </div>
+
+                            <button
+                                type="button"
+                                onClick={handleOpenUserEdit}
+                                className="primary-button"
+                                id="edit-coach-profile-btn"
+                            >
+                                <Edit3 size={16} />
+                                Edit Profile
+                            </button>
                         </div>
 
                         {/* ── Profile Header Card ──────────────────────────────────────── */}
@@ -703,6 +755,9 @@ function Profile() {
                         </div>
                     </>
                 )}
+
+                {/* ── Privacy & Consent Management Section ────────────────────── */}
+                <PrivacyAndConsentSection user={user} />
             </main>
 
             {/* ── Edit Profile Modal ─────────────────────────────────────────── */}
@@ -1047,6 +1102,118 @@ function Profile() {
                                         <>
                                             <Save size={16} />
                                             Save All Profile Changes
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Coach / User Profile Edit Modal ────────────────────────────── */}
+            {isEditingUser && (
+                <div
+                    className="modal-overlay"
+                    onClick={() => !savingUser && setIsEditingUser(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Edit Coach Profile"
+                >
+                    <div
+                        className="modal-content"
+                        style={{ maxWidth: 500 }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="modal-header profile-modal-header">
+                            <div className="profile-modal-header-text">
+                                <div className="profile-modal-icon">
+                                    <Edit3 size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="profile-modal-title">Edit Profile Information</h3>
+                                    <p className="profile-modal-subtitle">
+                                        Update contact details, identity, and date of birth
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                className="modal-close-btn"
+                                onClick={() => setIsEditingUser(false)}
+                                title="Close"
+                                disabled={savingUser}
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveUserProfile}>
+                            <div className="modal-body profile-modal-body" style={{ padding: "1.25rem" }}>
+                                {userSaveMsg.type === "error" && userSaveMsg.text && (
+                                    <div className="error-box" style={{ marginBottom: 14 }}>
+                                        <AlertCircle size={15} />
+                                        <span>{userSaveMsg.text}</span>
+                                    </div>
+                                )}
+
+                                <div className="form-group" style={{ marginBottom: 14 }}>
+                                    <label htmlFor="user-edit-name">Full Name</label>
+                                    <input
+                                        id="user-edit-name"
+                                        type="text"
+                                        value={userName}
+                                        onChange={(e) => setUserName(e.target.value)}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group" style={{ marginBottom: 14 }}>
+                                    <label htmlFor="user-edit-phone">Phone / Contact</label>
+                                    <input
+                                        id="user-edit-phone"
+                                        type="tel"
+                                        value={userPhone}
+                                        onChange={(e) => setUserPhone(e.target.value)}
+                                        placeholder="+1 (555) 000-0000"
+                                    />
+                                </div>
+
+                                <div className="form-group" style={{ marginBottom: 14 }}>
+                                    <label htmlFor="user-edit-dob">Date of Birth</label>
+                                    <input
+                                        id="user-edit-dob"
+                                        type="date"
+                                        value={userDob}
+                                        onChange={(e) => setUserDob(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={() => setIsEditingUser(false)}
+                                    disabled={savingUser}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="primary-button"
+                                    disabled={savingUser}
+                                >
+                                    {savingUser ? (
+                                        <>
+                                            <Loader2 size={16} className="spinner-icon" />
+                                            Saving…
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save size={16} />
+                                            Save Changes
                                         </>
                                     )}
                                 </button>

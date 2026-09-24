@@ -17,7 +17,7 @@ from google.auth.transport import requests as google_requests
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, RoleEnum
-from app.schemas.auth import UserRegisterRequest, UserResponse, TokenResponse, GoogleLoginRequest
+from app.schemas.auth import UserRegisterRequest, UserResponse, TokenResponse, GoogleLoginRequest, UserUpdateRequest
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.dependencies import get_current_user, require_role, require_roles
 
@@ -70,6 +70,7 @@ def register_user(
         password=hashed_password,
         role=user_in.role,
         phone=user_in.phone,
+        date_of_birth=user_in.date_of_birth,
         is_active=True,
         is_verified=False,
     )
@@ -79,6 +80,20 @@ def register_user(
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
+
+        # If registering as Athlete, automatically provision their Athlete profile row
+        if new_user.role == RoleEnum.ATHLETE:
+            from app.models.athlete import Athlete
+            existing_athlete = db.query(Athlete).filter(Athlete.user_id == new_user.user_id).first()
+            if not existing_athlete:
+                auto_athlete = Athlete(
+                    user_id=new_user.user_id,
+                    age=new_user.computed_age,
+                    injury_status="Healthy",
+                )
+                db.add(auto_athlete)
+                db.commit()
+
     except Exception as exc:
         db.rollback()
         raise HTTPException(
@@ -358,6 +373,42 @@ def get_me(
       user no longer exists / is inactive.
     - Never exposes ``password``, ``oauth_id``, or other sensitive credentials.
     """
+    return current_user
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update current user profile information",
+    description="Allows authenticated user (Coach, Athlete, Staff) to edit their name, phone, profile image, or date of birth.",
+)
+def update_me(
+    user_in: UserUpdateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> User:
+    update_data = user_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
+
+    # If date_of_birth changed and user is athlete, sync age on Athlete model
+    if "date_of_birth" in update_data and current_user.date_of_birth is not None:
+        from app.models.athlete import Athlete
+        athlete = db.query(Athlete).filter(Athlete.user_id == current_user.user_id).first()
+        if athlete:
+            athlete.age = current_user.computed_age
+
+    try:
+        db.commit()
+        db.refresh(current_user)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating profile information.",
+        ) from exc
+
     return current_user
 
 

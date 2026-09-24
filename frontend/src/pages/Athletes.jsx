@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Search, UserRound, UserPlus, Grid, List, Filter, ShieldAlert, CheckCircle2, Eye, Link as LinkIcon } from "lucide-react";
+import { Search, UserRound, UserPlus, Grid, List, Filter, ShieldAlert, CheckCircle2, Eye, Edit3, Link as LinkIcon } from "lucide-react";
 
 import RiskBadge from "../components/RiskBadge";
 import Loading from "../components/Loading";
 import AddAthleteModal from "../components/AddAthleteModal";
 import AthleteDetailModal from "../components/AthleteDetailModal";
+import EditAthleteModal from "../components/EditAthleteModal";
 
 import { getAthletes, assignAthlete } from "../api/athletes";
 import { useAuth } from "../context/AuthContext";
@@ -18,6 +19,7 @@ function Athletes() {
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedAthlete, setSelectedAthlete] = useState(null);
+  const [editingAthlete, setEditingAthlete] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -355,6 +357,14 @@ function Athletes() {
         onClose={() => setSelectedAthlete(null)}
         athlete={selectedAthlete}
         onUpdate={() => loadAthletes()}
+        onEditProfile={(ath) => setEditingAthlete(ath)}
+      />
+
+      <EditAthleteModal
+        isOpen={!!editingAthlete}
+        onClose={() => setEditingAthlete(null)}
+        athlete={editingAthlete}
+        onAthleteUpdated={() => loadAthletes()}
       />
     </div>
   );

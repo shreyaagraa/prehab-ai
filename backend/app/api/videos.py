@@ -195,6 +195,17 @@ async def upload_video(
     # 1. Resolve athlete from authenticated user.
     athlete = _get_athlete_for_user(current_user, db)
 
+    # 1b. Backend Consent Gate Enforcement: verify required consents are granted
+    from app.api.consent import check_user_consent_status
+    consent_status = check_user_consent_status(current_user, db)
+    if not consent_status.can_upload:
+        missing_names = ", ".join([c.value for c in consent_status.missing_required_consents])
+        guardian_note = " (including parent/guardian consent for minors)" if current_user.is_minor else ""
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Consent required: Required consent [{missing_names}] must be recorded before uploading videos{guardian_note}.",
+        )
+
     # 2. Validate MIME type.
     # UploadFile.content_type may be None for unusual clients — treat as bad.
     content_type = (file.content_type or "").lower()
