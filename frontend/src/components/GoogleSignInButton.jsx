@@ -81,24 +81,24 @@ function GoogleSignInButton({ onSuccess, onError, text = "continue_with", disabl
   };
 
   return (
-    <div className="google-auth-container">
+    <div className="google-auth-container" style={{ width: "100%" }}>
       {disabled ? (
         <button
           type="button"
           disabled
-          className="google-custom-btn loading"
+          className="google-custom-btn loading" style={{ width: "100%" }}
         >
           <Loader2 size={18} className="spinner-icon" />
           <span>Signing in with Google...</span>
         </button>
       ) : gisLoaded && googleClientId ? (
-        <div ref={buttonRef} className="google-gis-wrapper" />
+        <div ref={buttonRef} className="google-gis-wrapper" style={{ width: "100%", display: "flex", justifyContent: "center" }} />
       ) : (
         <button
           type="button"
           onClick={handleCustomClick}
           disabled={disabled}
-          className="google-custom-btn"
+          className="google-custom-btn" style={{ width: "100%" }}
           aria-label={getButtonText()}
         >
           <svg className="google-g-icon" width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

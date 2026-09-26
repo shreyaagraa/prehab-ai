@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
-import { ShieldCheck, ShieldAlert, Lock, UserCheck, RefreshCw, Check, X, Loader2, FileText, ToggleLeft, ToggleRight } from "lucide-react";
-import { getConsentStatus, withdrawConsent, grantConsent } from "../api/consent";
+﻿import { useState, useEffect } from "react";
+import { ShieldCheck, ShieldAlert, UserCheck, Loader2, X } from "lucide-react";
+import { getConsentStatus, withdrawConsent } from "../api/consent";
 import { getReportSharingStatus, updateReportSharing } from "../api/reportSharing";
 
 function PrivacyAndConsentSection({ user }) {
@@ -88,10 +88,10 @@ function PrivacyAndConsentSection({ user }) {
 
   return (
     <div className="privacy-consent-wrapper" style={{ marginTop: "2rem" }}>
-      {/* ── Section Header ───────────────────────────────────────────── */}
+      {/* Page Title */}
       <div className="section-title-row" style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
-        <ShieldCheck size={22} className="text-emerald" />
-        <h2 style={{ fontSize: "1.25rem", fontWeight: "600", color: "#f9fafb", margin: 0 }}>
+        <ShieldCheck size={22} style={{ color: "#10b981" }} />
+        <h2 style={{ fontSize: "1.25rem", fontWeight: "600", color: "#0f172a", margin: 0 }}>
           Consent & Privacy Management
         </h2>
       </div>
@@ -101,10 +101,10 @@ function PrivacyAndConsentSection({ user }) {
         <section className="panel card-panel">
           <div className="panel-header">
             <div>
-              <h3 style={{ fontSize: "1.05rem", fontWeight: "600", margin: 0, color: "#f8fafc" }}>
+              <h3 style={{ fontSize: "1.05rem", fontWeight: "600", margin: 0, color: "#0f172a" }}>
                 Active Data Processing Consents
               </h3>
-              <p style={{ fontSize: "0.85rem", color: "#94a3b8", margin: "2px 0 0" }}>
+              <p style={{ fontSize: "0.85rem", color: "#64748b", margin: "2px 0 0" }}>
                 Purpose-specific authorizations for video analysis and tracking
               </p>
             </div>
@@ -119,7 +119,7 @@ function PrivacyAndConsentSection({ user }) {
                 fontSize: "0.875rem",
                 backgroundColor: consentMsg.type === "success" ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
                 border: `1px solid ${consentMsg.type === "success" ? "#10b981" : "#ef4444"}`,
-                color: consentMsg.type === "success" ? "#34d399" : "#f87171",
+                color: consentMsg.type === "success" ? "#047857" : "#b91c1c",
               }}
             >
               {consentMsg.text}
@@ -127,7 +127,7 @@ function PrivacyAndConsentSection({ user }) {
           )}
 
           {loadingConsent ? (
-            <div style={{ padding: "1.5rem 0", textAlign: "center", color: "#94a3b8" }}>
+            <div style={{ padding: "1.5rem 0", textAlign: "center", color: "#64748b" }}>
               <Loader2 size={24} className="spinner-icon" />
               <p>Loading consent log...</p>
             </div>
@@ -135,7 +135,7 @@ function PrivacyAndConsentSection({ user }) {
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {/* Minor status badge */}
               {consentData?.is_minor && (
-                <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "rgba(245, 158, 11, 0.15)", border: "1px solid #f59e0b", color: "#fbbf24", fontSize: "0.85rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "rgba(245, 158, 11, 0.15)", border: "1px solid #f59e0b", color: "#b45309", fontSize: "0.85rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
                   <UserCheck size={18} />
                   <span>Minor Account (&lt;18 yrs) — Guardian: <strong>{consentData?.consents[0]?.guardian_name || "Parent/Guardian"}</strong></span>
                 </div>
@@ -211,10 +211,10 @@ function PrivacyAndConsentSection({ user }) {
         <section className="panel card-panel">
           <div className="panel-header">
             <div>
-              <h3 style={{ fontSize: "1.05rem", fontWeight: "600", margin: 0, color: "#f8fafc" }}>
+              <h3 style={{ fontSize: "1.05rem", fontWeight: "600", margin: 0, color: "#0f172a" }}>
                 Report Sharing & Access Controls
               </h3>
-              <p style={{ fontSize: "0.85rem", color: "#94a3b8", margin: "2px 0 0" }}>
+              <p style={{ fontSize: "0.85rem", color: "#64748b", margin: "2px 0 0" }}>
                 Control which staff roles can access your biomechanical risk reports
               </p>
             </div>
@@ -229,7 +229,7 @@ function PrivacyAndConsentSection({ user }) {
                 fontSize: "0.875rem",
                 backgroundColor: sharingMsg.type === "success" ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
                 border: `1px solid ${sharingMsg.type === "success" ? "#10b981" : "#ef4444"}`,
-                color: sharingMsg.type === "success" ? "#34d399" : "#f87171",
+                color: sharingMsg.type === "success" ? "#047857" : "#b91c1c",
               }}
             >
               {sharingMsg.text}
@@ -237,7 +237,7 @@ function PrivacyAndConsentSection({ user }) {
           )}
 
           {loadingSharing ? (
-            <div style={{ padding: "1.5rem 0", textAlign: "center", color: "#94a3b8" }}>
+            <div style={{ padding: "1.5rem 0", textAlign: "center", color: "#64748b" }}>
               <Loader2 size={24} className="spinner-icon" />
               <p>Loading sharing permissions...</p>
             </div>
@@ -252,13 +252,15 @@ function PrivacyAndConsentSection({ user }) {
                     backgroundColor: "#1e293b",
                     border: "1px solid #334155",
                     display: "flex",
-                    justifySpace: "space-between",
+                    justifyContent: "space-between",
                     alignItems: "center",
+                    gap: "1rem",
+                    flexWrap: "wrap",
                   }}
                 >
-                  <div>
+                  <div style={{ flex: "1 1 180px", minWidth: 0 }}>
                     <strong style={{ fontSize: "0.95rem", color: "#f8fafc", display: "block" }}>{s.target_role_label}</strong>
-                    <span style={{ fontSize: "0.8rem", color: s.is_authorized ? "#34d399" : "#f87171" }}>
+                    <span style={{ fontSize: "0.8rem", color: s.is_authorized ? "#34d399" : "#f87171", display: "inline-block", marginTop: "2px" }}>
                       {s.is_authorized ? "Access Authorized ✓" : "Access Revoked ✕"}
                     </span>
                   </div>
@@ -267,7 +269,7 @@ function PrivacyAndConsentSection({ user }) {
                     type="button"
                     onClick={() => handleToggleSharing(s.target_role, s.is_authorized)}
                     style={{
-                      padding: "0.4rem 0.8rem",
+                      padding: "0.45rem 0.9rem",
                       borderRadius: "0.375rem",
                       fontSize: "0.8rem",
                       fontWeight: "600",
@@ -275,9 +277,13 @@ function PrivacyAndConsentSection({ user }) {
                       backgroundColor: s.is_authorized ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)",
                       color: s.is_authorized ? "#f87171" : "#34d399",
                       cursor: "pointer",
-                      display: "flex",
+                      display: "inline-flex",
                       alignItems: "center",
+                      justifyContent: "center",
                       gap: "0.4rem",
+                      flexShrink: 0,
+                      whiteSpace: "nowrap",
+                      minWidth: "135px",
                     }}
                   >
                     {s.is_authorized ? "Revoke Access" : "Authorize Access"}

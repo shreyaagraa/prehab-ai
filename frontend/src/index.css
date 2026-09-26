@@ -9720,7 +9720,46 @@ body.modal-open {
 
 /* Google Sign In Wrapper */
 .google-btn-wrapper {
+    width: 100%;
     margin-bottom: 8px;
+}
+
+.google-auth-container {
+    width: 100%;
+}
+
+.google-gis-wrapper {
+    width: 100% !important;
+    display: flex;
+    justify-content: center;
+}
+
+.google-gis-wrapper > div,
+.google-gis-wrapper iframe {
+    width: 100% !important;
+    min-width: 100% !important;
+}
+
+.google-custom-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #1e293b;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.google-custom-btn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
 }
 
 /* Divider */
